@@ -1,0 +1,44 @@
+{
+  "name": "naive",
+  "author": "irek",
+  "version": "1.0.0",
+  "files": ["dist.zip"],
+  "keywords": ["pebble-watchface", "naive", "brutal"],
+  "private": false,
+  "dependencies": {
+    "pebble-clay": "^1.0.4"
+  },
+  "pebble": {
+    "displayName": "Naive",
+    "uuid": "11656b38-bc91-4d6d-9205-d9ee0887b3c2",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": [
+      "aplite",
+      "basalt",
+      "chalk",
+      "diorite"
+    ],
+    "watchapp": {
+      "watchface": true
+    },
+    "capabilities": [
+      "health"
+    ],
+    "resources": {
+      "media": [
+        {
+          "menuIcon": "true",
+          "type": "png",
+          "name": "MENU_ICON",
+          "file": "icon.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "TEST",
+          "file": "test.png"
+        }
+      ]
+    }
+  }
+}
