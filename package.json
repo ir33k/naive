@@ -1,9 +1,14 @@
 {
   "name": "naive",
   "author": "irek",
-  "version": "1.0.0",
-  "files": ["dist.zip"],
-  "keywords": ["pebble-watchface", "naive", "brutal"],
+  "version": "0.1.0",
+  "keywords": [
+    "pebble-watchface",
+    "naive",
+    "rebble",
+    "digital",
+    "seconds"
+  ],
   "private": false,
   "dependencies": {
     "pebble-clay": "^1.0.4"
@@ -17,13 +22,26 @@
       "aplite",
       "basalt",
       "chalk",
-      "diorite"
+      "diorite",
+      "emery"
     ],
     "watchapp": {
       "watchface": true
     },
     "capabilities": [
       "health"
+    ],
+    "messageKeys": [
+      "BG",
+      "FG",
+      "TEXT0",
+      "TEXT1",
+      "TEXT2",
+      "TEXT3",
+      "BTON",
+      "BTOFF",
+      "HOUR",
+      "SECONDS"
     ],
     "resources": {
       "media": [
@@ -35,8 +53,8 @@
         },
         {
           "type": "bitmap",
-          "name": "TEST",
-          "file": "test.png"
+          "name": "FONT0",
+          "file": "font0.png"
         }
       ]
     }
