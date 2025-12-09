@@ -1,0 +1,1402 @@
+<!DOCTYPE html>
+<html lang=en>
+<meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+
+<!-- GPL-2 License -->
+
+<style>
+pre { max-width: 47ch; white-space: pre-wrap; line-break: anywhere }
+.selected { background: lightgreen }
+.active { background: gold }
+#canvasContainer { max-width: 100%; overflow: auto }
+</style>
+
+<title>PDC Editor</title>
+
+<h1>PDC Editor v0.4</h1>
+
+<p>
+<label for=fileUpload>Upload PDC file</label>
+<input type=file id=fileUpload accept=".pdc"/>
+
+<p>
+<label for=pdcNameInput>Name</label>
+<input id=pdcNameInput type=text value="image.pdc">
+<label for=pdcFileFormatInput>Format</label>
+<select id=pdcFileFormatInput>
+	<option value=PDCI selected>PDCI (Image)</option>
+	<option value=PDCS disabled>PDCS (Sequence)</option>
+</select>
+
+<label>Viewbox</label>
+<input id=pdcViewboxWidthInput type=number min=0 max=65535 placeholder=width value=32>
+<input id=pdcViewboxHeightInput type=number min=0 max=65535 placeholder=height value=32>
+
+<button id=pdcAddPathButton>Add path</button>
+<button id=pdcAddCircleButton>Add circle</button>
+<button id=pdcAddPreciseButton disabled title="Not implemented">Add precise path</button>
+
+<p>
+<table border=1>
+	<thead>
+		<tr>
+			<th scope=col>No</th>
+			<th scope=col>Type</th>
+			<th scope=col>Hidden</th>
+			<th scope=col>Stroke color</th>
+			<th scope=col>Stroke width</th>
+			<th scope=col>Fill color</th>
+			<th scope=col>Open</th>
+			<th scope=col>Radius</th>
+			<th scope=col>Points</th>
+			<th scope=col>Actions</th>
+		</tr>
+	</thead>
+	<tbody id=pdcCommandsTableBody></tbody>
+</table>
+
+<p>
+<label for=scaleInput>Scale</label>
+<input id=scaleInput type=number min=1 max=16 value=6>
+
+<label for=gridInput>Grid</label>
+<input id=gridInput type=number min=0 max=255 value=1>
+
+<span id=activeSpan>
+	<label>Active</label>
+	<input id=activeXInput type=number min=0 max=65535 title=x placeholder=x>
+	<input id=activeXDecimalInput type=number min=0 max=7 disabled>
+	<input id=activeYInput type=number min=0 max=65535 title=y placeholder=y>
+	<input id=activeYDecimalInput type=number min=0 max=7 disabled>
+
+	<button id=activeAddButton>Add</button>
+	<button id=selectedRemoveButton>Remove</button>
+	<button id=selectedFlipHorizontallyButton>Flip horizontally</button>
+	<button id=selectedFlipVerticallyButton>Flip vertically</button>
+</span>
+
+<button id=selectAllButton>Select all</button>
+
+<p id=canvasContainer>
+<canvas></canvas>
+
+<h2>Links</h2>
+<p>
+<ul>
+	<li><a id=downloadLink href=#>Download PDC</a>
+	<li><a id=previewLink href=#>Preview with pdc-tool@heikobehrens</a>
+	<li><a href=https://developer.rebble.io/guides/app-resources/pdc-format>Pebble Draw Command file format documentation</a>
+</ul>
+
+<h2>Hex dump</h2>
+<p>
+<pre id=pdcHex></pre>
+
+<h2>Base64</h2>
+<p>
+<pre id=pdcBase64></pre>
+
+<h2>Usage</h2>
+<p>
+Upload PDC file or create one from scratch.
+Set file name and define file format to start.
+Viewbox control canvas size.
+Use Add path, Add circle and Add precise buttons to add new commands to PDC whch content is displayed in table.
+
+<p>
+Each table row is one PDC command (one shape).
+
+<p>
+Select point with left mouse click.
+Last selected point is used as active point.
+
+<h3>Shortcuts</h3>
+<p>
+Shortcuts work only when mouse cursor is inside canvas.
+
+<p>
+<dl>
+<dt>Arrows</dt>
+	<dd>Move selected points by grid distance</dd>
+<dt>=</dt>
+	<dd>Increase scale</dd>
+<dt>-</dt>
+	<dd>Decrease scale</dd>
+<dt>]</dt>
+	<dd>Increase grid</dd>
+<dt>[</dt>
+	<dd>Decrease grid</dd>
+<dt>1-9</dt>
+	<dd>Set grid size</dd>
+<dt>0</dt>
+	<dd>Hide grid</dd>
+<dt>s</dt>
+<dt>S</dt>
+	<dd>Select or deselect all</dd>
+<dt>a</dt>
+<dt>A</dt>
+	<dd>Add point after active point</dd>
+<dt>Delete</dt>
+<dt>Backspace</dt>
+	<dd>Delete all selected points</dd>
+</dl>
+
+<script>
+
+var COMMAND_PATH	= 1
+var COMMAND_CIRCLE	= 2
+var COMMAND_PRECISE	= 3
+
+var COLOR_FOREGROUND	= 'black'
+var COLOR_BACKGROUND	= '#999'
+var COLOR_GRID		= 'black'
+var COLOR_SELECTED	= 'lightgreen'
+var COLOR_ACTIVE	= 'gold'
+var COLOR_OPACITY	= '66'
+
+var commandTypeToNameMap = {
+	[COMMAND_PATH]:		'Path',
+	[COMMAND_CIRCLE]:	'Circle',
+	[COMMAND_PRECISE]:	'Precise',
+}
+
+var colors = [	// AARRGGBB, values, css and names are from Pebble SDK
+	{ value: 0b00000000, css: '#000000', name: 'None' },
+	{ value: 0b11000000, css: '#000000', name: 'Black' },
+	{ value: 0b11000001, css: '#000055', name: 'OxfordBlue' },
+	{ value: 0b11000010, css: '#0000AA', name: 'DukeBlue' },
+	{ value: 0b11000011, css: '#0000FF', name: 'Blue' },
+	{ value: 0b11000100, css: '#005500', name: 'DarkGreen' },
+	{ value: 0b11000101, css: '#005555', name: 'MidnightGreen' },
+	{ value: 0b11000110, css: '#0055AA', name: 'CobaltBlue' },
+	{ value: 0b11000111, css: '#0055FF', name: 'BlueMoon' },
+	{ value: 0b11001000, css: '#00AA00', name: 'IslamicGreen' },
+	{ value: 0b11001001, css: '#00AA55', name: 'JaegerGreen' },
+	{ value: 0b11001010, css: '#00AAAA', name: 'TiffanyBlue' },
+	{ value: 0b11001011, css: '#00AAFF', name: 'VividCerulean' },
+	{ value: 0b11001100, css: '#00FF00', name: 'Green' },
+	{ value: 0b11001101, css: '#00FF55', name: 'Malachite' },
+	{ value: 0b11001110, css: '#00FFAA', name: 'MediumSpringGreen' },
+	{ value: 0b11001111, css: '#00FFFF', name: 'Cyan' },
+	{ value: 0b11010000, css: '#550000', name: 'BulgarianRose' },
+	{ value: 0b11010001, css: '#550055', name: 'ImperialPurple' },
+	{ value: 0b11010010, css: '#5500AA', name: 'Indigo' },
+	{ value: 0b11010011, css: '#5500FF', name: 'ElectricUltramarine' },
+	{ value: 0b11010100, css: '#555500', name: 'ArmyGreen' },
+	{ value: 0b11010101, css: '#555555', name: 'DarkGray' },
+	{ value: 0b11010110, css: '#5555AA', name: 'Liberty' },
+	{ value: 0b11010111, css: '#5555FF', name: 'VeryLightBlue' },
+	{ value: 0b11011000, css: '#55AA00', name: 'KellyGreen' },
+	{ value: 0b11011001, css: '#55AA55', name: 'MayGreen' },
+	{ value: 0b11011010, css: '#55AAAA', name: 'CadetBlue' },
+	{ value: 0b11011011, css: '#55AAFF', name: 'PictonBlue' },
+	{ value: 0b11011100, css: '#55FF00', name: 'BrightGreen' },
+	{ value: 0b11011101, css: '#55FF55', name: 'ScreaminGreen' },
+	{ value: 0b11011110, css: '#55FFAA', name: 'MediumAquamarine' },
+	{ value: 0b11011111, css: '#55FFFF', name: 'ElectricBlue' },
+	{ value: 0b11100000, css: '#AA0000', name: 'DarkCandyAppleRed' },
+	{ value: 0b11100001, css: '#AA0055', name: 'JazzberryJam' },
+	{ value: 0b11100010, css: '#AA00AA', name: 'Purple' },
+	{ value: 0b11100011, css: '#AA00FF', name: 'VividViolet' },
+	{ value: 0b11100100, css: '#AA5500', name: 'WindsorTan' },
+	{ value: 0b11100101, css: '#AA5555', name: 'RoseVale' },
+	{ value: 0b11100110, css: '#AA55AA', name: 'Purpureus' },
+	{ value: 0b11100111, css: '#AA55FF', name: 'LavenderIndigo' },
+	{ value: 0b11101000, css: '#AAAA00', name: 'Limerick' },
+	{ value: 0b11101001, css: '#AAAA55', name: 'Brass' },
+	{ value: 0b11101010, css: '#AAAAAA', name: 'LightGray' },
+	{ value: 0b11101011, css: '#AAAAFF', name: 'BabyBlueEyes' },
+	{ value: 0b11101100, css: '#AAFF00', name: 'SpringBud' },
+	{ value: 0b11101101, css: '#AAFF55', name: 'Inchworm' },
+	{ value: 0b11101110, css: '#AAFFAA', name: 'MintGreen' },
+	{ value: 0b11101111, css: '#AAFFFF', name: 'Celeste' },
+	{ value: 0b11110000, css: '#FF0000', name: 'Red' },
+	{ value: 0b11110001, css: '#FF0055', name: 'Folly' },
+	{ value: 0b11110010, css: '#FF00AA', name: 'FashionMagenta' },
+	{ value: 0b11110011, css: '#FF00FF', name: 'Magenta' },
+	{ value: 0b11110100, css: '#FF5500', name: 'Orange' },
+	{ value: 0b11110101, css: '#FF5555', name: 'SunsetOrange' },
+	{ value: 0b11110110, css: '#FF55AA', name: 'BrilliantRose' },
+	{ value: 0b11110111, css: '#FF55FF', name: 'ShockingPink' },
+	{ value: 0b11111000, css: '#FFAA00', name: 'ChromeYellow' },
+	{ value: 0b11111001, css: '#FFAA55', name: 'Rajah' },
+	{ value: 0b11111010, css: '#FFAAAA', name: 'Melon' },
+	{ value: 0b11111011, css: '#FFAAFF', name: 'RichBrilliantLavender' },
+	{ value: 0b11111100, css: '#FFFF00', name: 'Yellow' },
+	{ value: 0b11111101, css: '#FFFF55', name: 'Icterine' },
+	{ value: 0b11111110, css: '#FFFFAA', name: 'PastelYellow' },
+	{ value: 0b11111111, css: '#FFFFFF', name: 'White' },
+]
+
+var colorNameToValueMap = {}
+var colorValueToNameMap = {}
+var colorValueToCssMap  = {}
+
+var pdc = {
+	name: pdcNameInput.value,
+	format: pdcFileFormatInput.value,
+	viewbox: {
+		width: Number(pdcViewboxWidthInput.value),
+		height: Number(pdcViewboxHeightInput.value),
+	},
+	commands: [],
+
+	// Editor state
+	scale: Number(scaleInput.value),
+	grid: Number(gridInput.value),
+	active: {
+		commandIndex: -1,
+		pointIndex: -1,
+	},
+}
+
+var canvas = document.querySelector('canvas')
+var ctx = canvas.getContext('2d')
+
+function onError(msg)
+{
+	window.alert(msg)
+}
+
+function parseU16(b1, b2)
+{
+	return (Number(b1) & 0xFF) | ((Number(b2) & 0xFF) << 8)
+}
+
+function pointDistance(x1, y1, x2, y2)
+{
+	var dx, dy
+
+	dx = Math.abs(x1 - x2)
+	dy = Math.abs(y1 - y2)
+
+	return Math.sqrt(dx * dx + dy * dy)
+}
+
+function parsePdc(bytes)
+{
+	var i, j, commandsCount, pointsCount, bi
+	var magicWord, type, command, point
+
+	if (bytes.length < 8) {
+		onError('Invalid PDC file, size is < 8')
+		return
+	}
+
+	bi = 0
+
+	magicWord = ''
+	magicWord += String.fromCharCode(bytes[bi++])
+	magicWord += String.fromCharCode(bytes[bi++])
+	magicWord += String.fromCharCode(bytes[bi++])
+	magicWord += String.fromCharCode(bytes[bi++])
+
+	switch (magicWord) {
+	case 'PDCI':
+		pdc.format = magicWord
+		break
+	case 'PDCS':
+		onError('PDCS support is not implemented')
+		return
+	default:
+		onError('Invalid magic word ' + magicWord)
+		return
+	}
+
+	bi += 4		// Skip image size
+	bi++		// Skip version
+	bi++		// Skip reserved
+
+	pdc.viewbox.width = parseU16(bytes[bi++], bytes[bi++])
+	pdc.viewbox.height = parseU16(bytes[bi++], bytes[bi++])
+	commandsCount = parseU16(bytes[bi++], bytes[bi++])
+	pdc.commands = []
+
+	for (i = 0; i < commandsCount; i++) {
+		type = bytes[bi++]
+
+		switch (type) {
+		case COMMAND_PATH:
+		case COMMAND_CIRCLE:
+			break
+		case COMMAND_PRECISE:
+			onError('Precise path is currently not supported')
+			return
+		default:
+			onError('Invalid command type ' + type)
+			return
+		}
+
+		command = pdcCommandAdd(type)
+		command.isHidden = !!bytes[bi++]
+		command.strokeColor = bytes[bi++]
+		command.strokeWidth = bytes[bi++]
+		command.fillColor = bytes[bi++]
+		command.isOpen = false
+		command.radius = 0
+
+		if (type === COMMAND_CIRCLE)
+			command.radius = parseU16(bytes[bi++], bytes[bi++])
+		else
+			command.isOpen = !!parseU16(bytes[bi++], bytes[bi++])
+
+		pointsCount = parseU16(bytes[bi++], bytes[bi++])
+
+		if (type === COMMAND_CIRCLE && pointsCount != 1) {
+			onError('Expected only 1 point for circle, got ' + pointsCount)
+			return
+		}
+
+		for (j = 0; j < pointsCount; j++)
+			command.points.push({
+				x: parseU16(bytes[bi++], bytes[bi++]),
+				y: parseU16(bytes[bi++], bytes[bi++]),
+			})
+	}
+}
+
+function getTableRowIndex(child)
+{
+	var parent
+
+	parent = child.closest('tr')
+	return Array.from(parent.parentElement.children).indexOf(parent)
+}
+
+function actionSelectOnClick(event)
+{
+	var i, index, command
+
+	index = getTableRowIndex(event.target)
+	command = pdc.commands[index]
+
+	if (command.selected.length === command.points.length) {
+		command.selected = []
+
+		if (pdc.active.commandIndex === index) {
+			pdc.active.commandIndex = -1
+			pdc.active.pointIndex = -1
+		}
+	} else {
+		for (i = 0; i < command.points.length; i++)
+			if (!command.selected.includes(i))
+				command.selected.push(i)
+	}
+
+	pdcOnChange()
+}
+
+function actionUpOnClick(event)
+{
+	var index, tmp
+
+	index = getTableRowIndex(event.target)
+	tmp = pdc.commands[index]
+	pdc.commands[index] = pdc.commands[index - 1]
+	pdc.commands[index - 1] = tmp
+
+	pdcOnChange()
+}
+
+function actionDownOnClick(event)
+{
+	var index, tmp
+
+	index = getTableRowIndex(event.target)
+	tmp = pdc.commands[index]
+	pdc.commands[index] = pdc.commands[index + 1]
+	pdc.commands[index + 1] = tmp
+
+	pdcOnChange()
+}
+
+function actionCloneOnClick(event)
+{
+	var index, command
+
+	index = getTableRowIndex(event.target)
+	command = JSON.parse(JSON.stringify(pdc.commands[index]))
+	pdc.commands.splice(index, 0, command)
+
+	pdcOnChange()
+}
+
+function actionRemoveOnClick(event)
+{
+	var index
+
+	index = getTableRowIndex(event.target)
+	pdc.commands.splice(index, 1)
+
+	if (pdc.active.commandIndex === index) {
+		pdc.active.commandIndex = -1
+		pdc.active.pointIndex = -1
+	}
+
+	pdcOnChange()
+}
+
+function pdcToBinary()
+{
+	var i, j, n, binary, command
+
+	binary = []
+
+	switch (pdc.format) {
+	case 'PDCI':
+		binary.push('P'.charCodeAt(0))
+		binary.push('D'.charCodeAt(0))
+		binary.push('C'.charCodeAt(0))
+		binary.push('I'.charCodeAt(0))
+		break
+	case 'PDCS':
+		onError('PDCS is not yet implemented')
+		return
+	default:
+		onError('Invalid PDC File Format')
+		return
+	}
+
+	// Updated at the end
+	binary.push(0)
+	binary.push(0)
+	binary.push(0)
+	binary.push(0)
+
+	binary.push(1)
+	binary.push(0)
+
+	n = pdc.viewbox.width
+	binary.push((n >> 0) & 0xFF)
+	binary.push((n >> 8) & 0xFF)
+
+	n = pdc.viewbox.height
+	binary.push((n >> 0) & 0xFF)
+	binary.push((n >> 8) & 0xFF)
+
+	n = pdc.commands.length
+	binary.push((n >> 0) & 0xFF)
+	binary.push((n >> 8) & 0xFF)
+
+	for (i = 0; i < pdc.commands.length; i++) {
+		command = pdc.commands[i]
+		binary.push(command.type)
+		binary.push(command.isHidden ? 1 : 0)
+		binary.push(command.strokeColor)
+		binary.push(command.strokeWidth)
+		binary.push(command.fillColor)
+
+		if (command.type === COMMAND_CIRCLE) {
+			n = command.radius
+			binary.push((n >> 0) & 0xFF)
+			binary.push((n >> 8) & 0xFF)
+		} else {
+			binary.push(command.isOpen ? 1 : 0)
+			binary.push(0)
+		}
+
+		n = command.points.length
+		binary.push((n >> 0) & 0xFF)
+		binary.push((n >> 8) & 0xFF)
+
+		for (j = 0; j < command.points.length; j++) {
+			n = command.points[j].x
+			binary.push((n >> 0) & 0xFF)
+			binary.push((n >> 8) & 0xFF)
+
+			n = command.points[j].y
+			binary.push((n >> 0) & 0xFF)
+			binary.push((n >> 8) & 0xFF)
+		}
+	}
+
+	n = binary.length - 8
+	binary[4] = (n >>  0) & 0x00FF
+	binary[5] = (n >>  8) & 0x00FF
+	binary[6] = (n >> 16) & 0x00FF
+	binary[7] = (n >> 24) & 0x00FF
+
+	return new Uint8Array(binary)
+}
+
+function createColorPickerSelect()
+{
+	var i, input, option
+
+	input = document.createElement('select')
+
+	for (i = 0; i < colors.length; i++) {
+		option = document.createElement('option')
+		option.value = colors[i].value
+		option.text = colors[i].name
+		input.appendChild(option)
+	}
+
+	return input
+}
+
+function createTableCommandRow()
+{
+	var tr, td, input
+
+	tr = document.createElement('tr')
+
+	// index
+	td = document.createElement('th')
+	td.setAttribute('scope', 'row')
+	tr.appendChild(td)
+
+	// type
+	td = document.createElement('td')
+	tr.appendChild(td)
+
+	// is hidden
+	td = document.createElement('td')
+	tr.appendChild(td)
+	input = document.createElement('input')
+	input.type = 'checkbox'
+	input.addEventListener('change', function (event) {
+		index = getTableRowIndex(event.target)
+		pdc.commands[index].isHidden = event.target.checked
+		pdcOnChange()
+	})
+	td.appendChild(input)
+
+	// stroke color
+	td = document.createElement('td')
+	tr.appendChild(td)
+	input = createColorPickerSelect()
+	input.title = 'Depends on stroke width'
+	input.addEventListener('change', function (event) {
+		index = getTableRowIndex(event.target)
+		pdc.commands[index].strokeColor = Number(event.target.value)
+		pdcOnChange()
+	})
+	td.appendChild(input)
+
+	// stroke width
+	td = document.createElement('td')
+	tr.appendChild(td)
+	input = document.createElement('input')
+	input.type = 'number'
+	input.min = 0
+	input.max = 0xFF
+	input.addEventListener('change', function (event) {
+		index = getTableRowIndex(event.target)
+		pdc.commands[index].strokeWidth = Number(event.target.value)
+		pdcOnChange()
+	})
+	td.appendChild(input)
+
+	// fill color
+	td = document.createElement('td')
+	tr.appendChild(td)
+	input = createColorPickerSelect()
+	input.addEventListener('change', function (event) {
+		index = getTableRowIndex(event.target)
+		pdc.commands[index].fillColor = Number(event.target.value)
+		pdcOnChange()
+	})
+	td.appendChild(input)
+
+	// is open
+	td = document.createElement('td')
+	tr.appendChild(td)
+	input = document.createElement('input')
+	input.type = 'checkbox'
+	input.title = 'Only for paths'
+	input.addEventListener('change', function (event) {
+		index = getTableRowIndex(event.target)
+		pdc.commands[index].isOpen = event.target.checked
+		pdcOnChange()
+	})
+	td.appendChild(input)
+
+	// radius
+	td = document.createElement('td')
+	tr.appendChild(td)
+	input = document.createElement('input')
+	input.type = 'number'
+	input.min = 0
+	input.max = 0xFFFF
+	input.title = 'Only for circles'
+	input.addEventListener('change', function (event) {
+		index = getTableRowIndex(event.target)
+		pdc.commands[index].radius = Number(event.target.value)
+		pdcOnChange()
+	})
+	td.appendChild(input)
+
+	// points count
+	td = document.createElement('td')
+	tr.appendChild(td)
+
+	// actions
+	td = document.createElement('td')
+	tr.appendChild(td)
+
+	button = document.createElement('button')
+	button.innerText = 'Select'
+	button.title = 'Select or deselect all points'
+	button.addEventListener('click', actionSelectOnClick)
+	td.appendChild(button)
+
+	button = document.createElement('button')
+	button.innerText = 'Clone'
+	button.addEventListener('click', actionCloneOnClick)
+	td.appendChild(button)
+
+	button = document.createElement('button')
+	button.innerText = '↑'
+	button.title = 'Move up'
+	button.addEventListener('click', actionUpOnClick)
+	td.appendChild(button)
+
+	button = document.createElement('button')
+	button.innerText = '↓'
+	button.title = 'Move down'
+	button.addEventListener('click', actionDownOnClick)
+	td.appendChild(button)
+
+	button = document.createElement('button')
+	button.innerText = 'X'
+	button.title = 'Delete'
+	button.classList.add('danger')
+	button.addEventListener('click', actionRemoveOnClick)
+	td.appendChild(button)
+
+	return tr
+}
+
+function canvasOnChange()
+{
+	var i, j, delta, command, x, y
+
+	canvas.width = pdc.viewbox.width * pdc.scale + pdc.scale / 2
+	canvas.height = pdc.viewbox.height * pdc.scale + pdc.scale / 2
+
+	ctx.fillStyle = COLOR_BACKGROUND
+	ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+	
+	ctx.lineWidth = 1
+	ctx.fillStyle = COLOR_GRID
+	ctx.lineCap = "round"
+	ctx.lineJoin = "round"
+
+	if (pdc.grid != 0 && pdc.scale + pdc.grid >= 4) {
+		for (i = 0; i <= pdc.viewbox.height; i += pdc.grid) {
+			for (j = 0; j <= pdc.viewbox.width; j += pdc.grid) {
+				x = j * pdc.scale + pdc.scale / 2
+				y = i * pdc.scale + pdc.scale / 2
+
+				ctx.fillRect(x, y, 1, 1)
+			}
+		}
+	}
+
+	for (i = 0; i < pdc.commands.length; i++) {
+		command = pdc.commands[i]
+
+		if (command.isHidden)
+			continue
+
+		switch (command.type) {
+		case COMMAND_PATH:
+			ctx.beginPath()
+
+			for (j = 0; j < command.points.length; j++) {
+				x = command.points[j].x * pdc.scale
+				y = command.points[j].y * pdc.scale
+
+				x += pdc.scale / 2 + 0.5
+				y += pdc.scale / 2 + 0.5
+
+				if (j == 0)
+					ctx.moveTo(x, y)
+				else
+					ctx.lineTo(x, y)
+			}
+
+			if (!command.isOpen)
+				ctx.closePath()
+
+			if (command.fillColor) {
+				ctx.fillStyle = colorValueToCssMap[command.fillColor] + COLOR_OPACITY
+				ctx.fill()
+			}
+
+			if (command.strokeWidth > 1 && command.strokeColor) {
+				ctx.lineWidth = command.strokeWidth * pdc.scale
+				ctx.strokeStyle = colorValueToCssMap[command.strokeColor] + COLOR_OPACITY
+				ctx.stroke()
+			}
+
+			ctx.strokeStyle = COLOR_FOREGROUND
+			ctx.lineWidth = 1
+			ctx.stroke()
+			
+			for (j = 0; j < command.points.length; j++) {
+				x = command.points[j].x * pdc.scale
+				y = command.points[j].y * pdc.scale
+
+				x += pdc.scale / 2
+				y += pdc.scale / 2
+
+				if (command.selected.includes(j)) {
+					ctx.fillStyle = pdc.active.commandIndex === i && pdc.active.pointIndex === j ? COLOR_ACTIVE : COLOR_SELECTED
+					ctx.fillRect(x - 3, y - 3, 7, 7)
+					ctx.strokeRect(x - 3 + 0.5, y - 3 + 0.5, 7, 7)
+				} else {
+					ctx.fillStyle = COLOR_FOREGROUND
+					ctx.fillRect(x - 1, y - 1, 3, 3)
+				}
+			}
+
+			break
+		case COMMAND_CIRCLE:
+			if (command.points.length !== 1)
+				break
+
+			x = command.points[0].x * pdc.scale
+			y = command.points[0].y * pdc.scale
+
+			x += pdc.scale / 2
+			y += pdc.scale / 2
+
+			ctx.beginPath()
+			ctx.arc(x + 0.5, y + 0.5, command.radius * pdc.scale, 0, 2 * Math.PI)
+
+			if (command.fillColor) {
+				ctx.fillStyle = colorValueToCssMap[command.fillColor] + COLOR_OPACITY
+				ctx.fill()
+			}
+
+			if (command.strokeWidth > 1 && command.strokeColor) {
+				ctx.lineWidth = command.strokeWidth * pdc.scale
+				ctx.strokeStyle = colorValueToCssMap[command.strokeColor] + COLOR_OPACITY
+				ctx.stroke()
+			}
+
+			ctx.strokeStyle = COLOR_FOREGROUND
+			ctx.lineWidth = 1
+			ctx.stroke()
+
+			if (command.selected.includes(0)) {
+				ctx.fillStyle = pdc.active.commandIndex === i && pdc.active.pointIndex === 0 ? COLOR_ACTIVE : COLOR_SELECTED
+				ctx.fillRect(x - 3, y - 3, 7, 7)
+				ctx.strokeRect(x - 3 + 0.5, y - 3 + 0.5, 7, 7)
+			} else {
+				ctx.fillStyle = COLOR_FOREGROUND
+				ctx.fillRect(x - 1, y - 1, 3, 3)
+			}
+			break
+		}
+	}
+}
+
+function isEveryPointSelected()
+{
+	var i, command
+
+	for (i = 0; i < pdc.commands.length; i++) {
+		command = pdc.commands[i]
+
+		if (command.points.length > command.selected.length)
+			return false
+	}
+
+	return true
+}
+
+function deselectAllPoints()
+{
+	var i
+
+	for (i = 0; i < pdc.commands.length; i++)
+		pdc.commands[i].selected = []
+
+	pdc.active = {
+		commandIndex: -1,
+		pointIndex: -1,
+	}
+}
+
+function selectAllPoints()
+{
+	var i, j, command
+
+	for (i = 0; i < pdc.commands.length; i++) {
+		command = pdc.commands[i]
+
+		for (j = 0; j < command.points.length; j++) {
+			if (!command.selected.includes(j))
+				command.selected.push(j)
+
+			pdc.active = {
+				commandIndex: i,
+				pointIndex: j,
+			}
+		}
+	}
+}
+
+function toggleSelectAllPoints()
+{
+	if (isEveryPointSelected())
+		deselectAllPoints()
+	else
+		selectAllPoints()
+}
+
+function canvasOnClick(event)
+{
+	var i, j, x, y, command, point, distance, closest
+
+	x = (event.offsetX - pdc.scale / 2) / pdc.scale
+	y = (event.offsetY - pdc.scale / 2) / pdc.scale
+
+	closest = {
+		distance: Number.MAX_SAFE_INTEGER,
+		commandIndex: 0,
+		pointIndex: 0,
+	}
+
+	for (i = 0; i < pdc.commands.length; i++) {
+		command = pdc.commands[i]
+
+		if (command.isHidden)
+			continue
+
+		for (j = 0; j < command.points.length; j++) {
+			point = command.points[j]
+
+			distance = pointDistance(x, y, point.x, point.y)
+
+			if (distance < closest.distance) {
+				closest.distance = distance
+				closest.commandIndex = i
+				closest.pointIndex = j
+			}
+		}
+	}
+
+	if (pdc.commands[closest.commandIndex].selected.includes(closest.pointIndex)) {
+		pdc.commands[closest.commandIndex].selected = pdc.commands[closest.commandIndex].selected.filter(function (index) {
+			return index !== closest.pointIndex
+		})
+		pdc.active.commandIndex = -1
+		pdc.active.pointIndex = -1
+		// TODO(irek): Pick new active point if possible
+	} else {
+		pdc.commands[closest.commandIndex].selected.push(closest.pointIndex)
+		pdc.active.commandIndex = closest.commandIndex
+		pdc.active.pointIndex = closest.pointIndex
+	}
+
+	pdcOnChange()
+}
+
+function windowOnKeydown(event)
+{
+	event.preventDefault()
+
+	switch (event.key) {
+	case 'ArrowUp':
+		selectedMoveBy(0, (pdc.grid || 1) * -1)
+		break
+	case 'ArrowRight':
+		selectedMoveBy(pdc.grid || 1, 0)
+		break
+	case 'ArrowDown':
+		selectedMoveBy(0, pdc.grid || 1)
+		break
+	case 'ArrowLeft':
+		selectedMoveBy((pdc.grid || 1) * -1, 0)
+		break
+	case '=':
+		pdc.scale++
+
+		if (pdc.scale > 16)
+			pdc.scale = 16
+
+		scaleInput.value = pdc.scale
+		break
+	case '-':
+		pdc.scale--
+
+		if (pdc.scale < 1)
+			pdc.scale = 1
+
+		scaleInput.value = pdc.scale
+		break
+	case ']':
+		pdc.grid++
+
+		if (pdc.grid > 255)
+			pdc.grid = 255
+
+		gridInput.value = pdc.grid
+		break
+	case '[':
+		pdc.grid--
+
+		if (pdc.grid < 1)
+			pdc.grid = 1
+
+		gridInput.value = pdc.grid
+		break
+	case '0':
+	case '1':
+	case '2':
+	case '3':
+	case '4':
+	case '5':
+	case '6':
+	case '7':
+	case '8':
+	case '9':
+		pdc.grid = Number(event.key)
+		gridInput.value = pdc.grid
+		break
+	case 's':			// TODO(irek) Make it work for active command only
+	case 'S':
+		toggleSelectAllPoints()
+		break
+	case 'a':
+	case 'A':
+		addPoint()
+		break
+	case 'Delete':
+	case 'Backspace':
+		removeSelectedPoints()
+		break
+	default:
+		return
+	}
+
+	pdcOnChange()
+}
+
+function pdcOnChange(skipHistoryUpdate)
+{
+	var i, url, command, point, row, binary, name, url
+
+	pdcNameInput.value = pdc.name
+	pdcFileFormatInput.value = pdc.format
+	pdcViewboxWidthInput.value = pdc.viewbox.width
+	pdcViewboxHeightInput.value = pdc.viewbox.height
+
+	while (pdcCommandsTableBody.children.length < pdc.commands.length)
+		pdcCommandsTableBody.appendChild(createTableCommandRow())
+
+	while (pdcCommandsTableBody.children.length > pdc.commands.length)
+		pdcCommandsTableBody.removeChild(pdcCommandsTableBody.lastChild)
+
+	for (i = 0; i < pdc.commands.length; i++) {
+		command = pdc.commands[i]
+
+		if (command.strokeWidth === 0)
+			command.strokeColor = colorNameToValueMap.None
+
+		row = pdcCommandsTableBody.children[i]
+		row.classList.toggle('selected', command.selected.length)
+		row.classList.toggle('active', i === pdc.active.commandIndex)
+
+		row.children[0].innerText = i
+		row.children[1].innerText = commandTypeToNameMap[command.type]
+		row.children[2].children[0].checked = command.isHidden
+		row.children[3].children[0].value = command.strokeColor
+		row.children[3].children[0].disabled = command.strokeWidth === 0
+		row.children[4].children[0].value = command.strokeWidth
+		row.children[5].children[0].value = command.fillColor
+		row.children[6].children[0].checked = command.isOpen
+		row.children[6].children[0].disabled = command.type === COMMAND_CIRCLE
+		row.children[7].children[0].value = command.radius
+		row.children[7].children[0].disabled = command.type !== COMMAND_CIRCLE
+		row.children[8].innerText = command.selected.length + '/' + command.points.length
+		row.children[9].children[0].innerText = command.selected.length === command.points.length ? 'Deselect' : 'Select'
+		row.children[9].children[2].disabled = i === 0
+		row.children[9].children[3].disabled = i === pdc.commands.length - 1
+		row.children[9].children[4].disabled = pdc.commands.length <= 1
+	}
+
+	if (pdc.active.commandIndex >= 0) {
+		activeSpan.classList.add('active')
+
+		command = pdc.commands[pdc.active.commandIndex]
+		point = command.points[pdc.active.pointIndex]
+
+		activeXInput.value = point.x
+		activeYInput.value = point.y
+
+		activeXInput.disabled = false
+		activeYInput.disabled = false
+		activeAddButton.disabled = false
+		selectedRemoveButton.disabled = false
+		selectedFlipHorizontallyButton.disabled = false
+		selectedFlipVerticallyButton.disabled = false
+	} else {
+		activeSpan.classList.remove('active')
+
+		activeXInput.value = ''
+		activeYInput.value = ''
+
+		activeXInput.disabled = true
+		activeYInput.disabled = true
+		activeAddButton.disabled = true
+		selectedRemoveButton.disabled = true
+		selectedFlipHorizontallyButton.disabled = true
+		selectedFlipVerticallyButton.disabled = true
+	}
+
+	selectAllButton.innerText = isEveryPointSelected() ? 'Deselect all' : 'Select all'
+
+	binary = pdcToBinary()
+
+	pdcHex.innerText = binary.toHex().replaceAll(/../g, function (match) {
+		return match + ' '
+	})
+
+	base64 = binary.toBase64()
+	previewLink.href = 'https://pdc-tool.heikobehrens.com/render?data=' + base64 + '&filename=' + pdc.name
+	pdcBase64.innerText = base64
+
+	blob = new Blob([binary], { type: 'application/octet-stream' })
+	downloadLink.href = window.URL.createObjectURL(blob)
+	downloadLink.download = pdc.name
+
+	if (!skipHistoryUpdate) {
+		url = new URL(location)
+		url.searchParams.set('name', pdc.name)
+		url.searchParams.set('data', base64)
+		history.pushState({}, '', url)
+	}
+
+	canvasOnChange()
+}
+
+function pdcCommandAdd(type)
+{
+	var command
+
+	command = {
+		type: type,
+		isHidden: false,
+		strokeColor: colorNameToValueMap.None,
+		strokeWidth: 0,
+		fillColor: colorNameToValueMap.None,
+		isOpen: 0,
+		radius: 0,
+		points: [],
+		selected: [],
+	}
+
+	switch (type) {
+	case COMMAND_CIRCLE:
+		command.radius = 8
+		break
+	case COMMAND_PRECISE:
+		onError('Precise path command type is not yet supported')
+		return
+	}
+
+	pdc.commands.push(command)
+
+	return command
+}
+
+function addPoint()
+{
+	var command, commandIndex, point, activePoint, pointIndex
+
+	if (pdc.active.commandIndex == -1)
+		return
+
+	commandIndex = pdc.active.commandIndex
+	command = pdc.commands[commandIndex]
+
+	if (command.type === COMMAND_CIRCLE)
+		return
+
+	activePoint = command.points[pdc.active.pointIndex]
+
+	point = {
+		x: activePoint.x + pdc.grid,
+		y: activePoint.y + pdc.grid,
+	}
+
+	pointIndex = pdc.active.pointIndex + 1
+	command.points.splice(pointIndex, 0, point)
+
+	deselectAllPoints()
+
+	pdc.active.commandIndex = commandIndex
+	pdc.active.pointIndex = pointIndex
+	command.selected.push(pdc.active.pointIndex)
+}
+
+function removeSelectedPoints()
+{
+	var i, j, command
+
+	for (i = 0; i < pdc.commands.length; i++) {
+		command = pdc.commands[i]
+
+		command.points = command.points.filter(function (_, index) {
+			return !command.selected.includes(index)
+		})
+
+		command.selected = []
+
+		if (command.points.length === 0)
+			pdc.commands.splice(i, 1)
+	}
+
+	pdc.active.commandIndex = -1
+	pdc.active.pointIndex = -1
+}
+
+function flipHorizontallySelectedPoints()
+{
+	var i, j, command, point, minX, maxX, half
+
+	minX = Number.MAX_SAFE_INTEGER
+	maxX = 0
+
+	for (i = 0; i < pdc.commands.length; i++) {
+		command = pdc.commands[i]
+
+		for (j = 0; j < command.selected.length; j++) {
+			point = command.points[command.selected[j]]
+			minX = Math.min(minX, point.x)
+			maxX = Math.max(maxX, point.x)
+		}
+	}
+
+	half = (maxX - minX) / 2
+
+	for (i = 0; i < pdc.commands.length; i++) {
+		command = pdc.commands[i]
+
+		for (j = 0; j < command.selected.length; j++) {
+			point = command.points[command.selected[j]]
+			point.x -= minX
+			point.x += (half - point.x) * 2
+			point.x += minX
+			point.x = Math.floor(point.x)
+		}
+	}
+}
+
+function flipVerticallySelectedPoints()
+{
+	var i, j, command, point, minY, maxY, half
+
+	minY = Number.MAX_SAFE_INTEGER
+	maxY = 0
+
+	for (i = 0; i < pdc.commands.length; i++) {
+		command = pdc.commands[i]
+
+		for (j = 0; j < command.selected.length; j++) {
+			point = command.points[command.selected[j]]
+			minY = Math.min(minY, point.y)
+			maxY = Math.max(maxY, point.y)
+		}
+	}
+
+	half = (maxY - minY) / 2
+
+	for (i = 0; i < pdc.commands.length; i++) {
+		command = pdc.commands[i]
+
+		for (j = 0; j < command.selected.length; j++) {
+			point = command.points[command.selected[j]]
+			point.y -= minY
+			point.y += (half - point.y) * 2
+			point.y += minY
+			point.y = Math.floor(point.y)
+		}
+	}
+}
+
+function selectedMoveBy(deltaX, deltaY)
+{
+	var i, j, command, point
+
+	for (i = 0; i < pdc.commands.length; i++) {
+		command = pdc.commands[i]
+
+		for (j = 0; j < command.selected.length; j++) {
+			point = command.points[command.selected[j]]
+			point.x += deltaX
+			point.y += deltaY
+		}
+	}
+}
+
+function main()
+{
+	var i, url, param
+
+	for (i = 0; i < colors.length; i++) {
+		colorNameToValueMap[colors[i].name]  = colors[i].value
+		colorValueToNameMap[colors[i].value] = colors[i].name
+		colorValueToCssMap[colors[i].value]  = colors[i].css
+	}
+
+	fileUpload.addEventListener('change', function (event) {
+		pdc.active.commandIndex = -1
+		pdc.active.pointIndex = -1
+
+		pdc.name = event.target.files[0].name
+
+		event.target.files[0]
+			.bytes()
+			.then(parsePdc)
+			.then(pdcOnChange)
+	})
+
+	pdcFileFormatInput.addEventListener('change', function (event) {
+		pdc.format = event.target.value
+		pdcOnChange()
+	})
+
+	pdcNameInput.addEventListener('change', function (event) {
+		pdc.name = event.target.value
+		pdcOnChange()
+	})
+
+	pdcViewboxWidthInput.addEventListener('change', function (event) {
+		pdc.viewbox.width = Number(event.target.value)
+		pdcOnChange()
+	})
+
+	pdcViewboxHeightInput.addEventListener('change', function (event) {
+		pdc.viewbox.height = Number(event.target.value)
+		pdcOnChange()
+	})
+
+	pdcAddPathButton.addEventListener('click', function () {
+		var command = pdcCommandAdd(COMMAND_PATH)
+		command.points.push({ x: pdc.grid,     y: pdc.grid     })
+		command.points.push({ x: pdc.grid + 8, y: pdc.grid     })
+		command.points.push({ x: pdc.grid + 8, y: pdc.grid + 8 })
+		command.points.push({ x: pdc.grid,     y: pdc.grid + 8 })
+		pdcOnChange()
+	})
+
+	pdcAddCircleButton.addEventListener('click', function () {
+		var command = pdcCommandAdd(COMMAND_CIRCLE)
+		command.points.push({
+			x: Math.floor(pdc.viewbox.width / 2),
+			y: Math.floor(pdc.viewbox.height / 2),
+		})
+		pdcOnChange()
+	})
+
+	pdcAddPreciseButton.addEventListener('click', function () {
+		var command = pdcCommandAdd(COMMAND_PRECISE)
+		command.points.push({ x: pdc.grid,     y: pdc.grid     })
+		command.points.push({ x: pdc.grid + 8, y: pdc.grid     })
+		command.points.push({ x: pdc.grid + 8, y: pdc.grid + 8 })
+		command.points.push({ x: pdc.grid,     y: pdc.grid + 8 })
+		pdcOnChange()
+	})
+
+	scaleInput.addEventListener('change', function (event) {
+		pdc.scale = Number(event.target.value)
+		canvasOnChange()
+	})
+
+	gridInput.addEventListener('change', function (event) {
+		pdc.grid = Number(event.target.value)
+		canvasOnChange()
+	})
+
+	activeXInput.addEventListener('change', function (event) {
+		var command, point, delta
+
+		command = pdc.commands[pdc.active.commandIndex]
+		point = command.points[pdc.active.pointIndex]
+		delta = Number(event.target.value) - point.x
+
+		selectedMoveBy(delta, 0)
+		canvasOnChange()
+	})
+
+	activeYInput.addEventListener('change', function (event) {
+		var command, point, delta
+
+		command = pdc.commands[pdc.active.commandIndex]
+		point = command.points[pdc.active.pointIndex]
+		delta = Number(event.target.value) - point.y
+
+		selectedMoveBy(0, delta)
+		canvasOnChange()
+	})
+
+	activeAddButton.addEventListener('click', function () {
+		addPoint()
+		pdcOnChange()
+	})
+
+	selectedRemoveButton.addEventListener('click', function () {
+		removeSelectedPoints()
+		pdcOnChange()
+	})
+
+	selectedFlipHorizontallyButton.addEventListener('click', function () {
+		flipHorizontallySelectedPoints()
+		pdcOnChange()
+	})
+
+	selectedFlipVerticallyButton.addEventListener('click', function () {
+		flipVerticallySelectedPoints()
+		pdcOnChange()
+	})
+
+	selectAllButton.addEventListener('click', function () {
+		toggleSelectAllPoints()
+		pdcOnChange()
+	})
+
+	window.addEventListener("popstate", function (event) {
+		var url, param
+
+		url = new URL(location)
+
+		if ((param = url.searchParams.get('name')))
+			pdc.name = param
+
+		if ((param = url.searchParams.get('data')))
+			parsePdc(Uint8Array.fromBase64(param))
+
+		pdcOnChange(true)
+	})
+
+	canvas.addEventListener('click', canvasOnClick)
+
+	canvas.addEventListener('mouseenter', function () {
+		window.addEventListener('keydown', windowOnKeydown)
+	})
+
+	canvas.addEventListener('mouseleave', function () {
+		window.removeEventListener('keydown', windowOnKeydown)
+	})
+
+	url = new URL(location.href)
+
+	if ((param = url.searchParams.get('name')))
+		pdc.name = param
+
+	if ((param = url.searchParams.get('data')))
+		parsePdc(Uint8Array.fromBase64(param))
+
+	pdcOnChange()
+}
+
+main()
+</script>

@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang=en>
+<meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+
+<style>
+[title]::after { content: " (" attr(title) ")"; color: grey }
+.command { solid; margin-top: 1em }
+input[type=number] { max-width: 6em }
+</style>
+
+<title>PDC Editor</title>
+
+<h1>PDC Pebble Draw Command Editor</h1>
+
+<p>
+<a href=https://developer.rebble.io/guides/app-resources/pdc-format>Pebble Draw Command file format documentation</a>
+
+<hr>
+
+<p>
+<label for=fileUpload>Upload PDC file</label>
+<input type=file id=fileUpload />
+<ul id=filePreview></ul>
+<p>
+
+<h2>PDC Editor</h2>
+<div hidden>
+	<label for=pdcFormatVersionInput>Format Version</label>
+	<input id=pdcFormatVersionInput type=text disabled value=1 />
+</div>
+<div>
+	<label for=pdcFileFormatInput>Format</label>
+	<select id=pdcFileFormatInput>
+	  <option value=PDCI selected>PDCI (Image)</option>
+	  <option value=PDCS disabled>PDCS (Sequence)</option>
+	</select>
+</div>
+<div id=pdcFileFormatContainer></div>
+
+<h2>Hex dump</h2>
+<pre id=pdcHex></pre>
+
+<h2>Base64</h2>
+<pre id=pdcBase64></pre>
+
+<h2>Actions</h2>
+<ul>
+	<li><a id=downloadLink href=#>Download</button>
+	<li><a id=previewLink href=#>Preview with pdc-tool@heikobehrens</a>
+</ul>
+
+<script>
+
+var CMD_TYPE_PATH	= 1
+var CMD_TYPE_CIRCLE	= 2
+var CMD_TYPE_PRECISE	= 3
+
+var DEFAULT_VIEWBOX_X	= 32
+var DEFAULT_VIEWBOX_Y	= 32
+var DEFAULT_CMD_COUNT	= 1
+var DEFAULT_CMD_TYPE	= CMD_TYPE_PATH
+var DEFAULT_RADIUS	= 10
+
+var uniqueIndex = 0	// Incremented on each usage
+
+function onError(msg)
+{
+	window.alert(msg)
+}
+
+function removeChildren(parent)
+{
+	while (parent.firstChild)
+		parent.removeChild(parent.firstChild)
+}
+
+function parseU16(b1, b2)
+{
+	return (Number(b1) & 0xFF) | ((Number(b2) & 0xFF) << 8)
+}
+
+function parsePdc(bytes)
+{
+	var i, j, bi, magicWord, type
+	var inpit, command, commands, point, points
+
+	if (bytes.length < 8) {
+		onError('Invalid PDC file, size is < 8')
+		return
+	}
+
+	bi = 0
+
+	magicWord = ''
+	magicWord += String.fromCharCode(bytes[bi++])
+	magicWord += String.fromCharCode(bytes[bi++])
+	magicWord += String.fromCharCode(bytes[bi++])
+	magicWord += String.fromCharCode(bytes[bi++])
+
+	switch (magicWord) {
+	case 'PDCI':
+		pdcFileFormatInput.value = magicWord
+		break
+	case 'PDCS':
+		onError('PDCS support is not implemented')
+		return
+	default:
+		onError('Invalid magic word ' + magicWord)
+		return
+	}
+
+	bi += 4		// Skip image size
+	pdcImageSizeInput.value = bytes.length - 8
+
+	pdcImageVersionInput.value = bytes[bi++]
+	pdcImageReservedInput.value = bytes[bi++]
+	pdcImageViewBoxXInput.value = parseU16(bytes[bi++], bytes[bi++])
+	pdcImageViewBoxYInput.value = parseU16(bytes[bi++], bytes[bi++])
+	pdcNumberOfCommandsInput.value = parseU16(bytes[bi++], bytes[bi++])
+	numberOfCommandsOnChange({ target: pdcNumberOfCommandsInput })
+
+	commands = pdcFileFormatContainer.querySelector('.commands').children
+
+	for (i = 0; i < commands.length; i++) {
+		command = commands[i]
+
+		type = bytes[bi++]
+
+		switch (type) {
+		case CMD_TYPE_PATH:
+		case CMD_TYPE_CIRCLE:
+			input = command.querySelector('[id^=pdcCommandTypeInput]')
+			input.value = type
+			break
+		case CMD_TYPE_PRECISE:
+			onError("Precise path is currently not supported")
+			return
+		default:
+			onError("Invalid command type " + type)
+			return
+		}
+		
+		input = command.querySelector('[id^=pdcCommandIsHiddenInput]')
+		input.checked = !!bytes[bi++]
+
+		input = command.querySelector('[id^=pdcCommandStrokeColorInput]')
+		input.value = bytes[bi++]
+
+		input = command.querySelector('[id^=pdcCommandStrokeWidthInput]')
+		input.value = bytes[bi++]
+
+		input = command.querySelector('[id^=pdcCommandFillColorInput]')
+		input.value = bytes[bi++]
+
+		switch (type) {
+		case CMD_TYPE_CIRCLE:
+			input = command.querySelector('[id^=pdcCommandIsPathOpenInput]')
+			input.checked = false
+
+			input = command.querySelector('[id^=pdcCommandRadiusInput]')
+			input.value = parseU16(bytes[bi++], bytes[bi++])
+
+			break
+		default:
+			input = command.querySelector('[id^=pdcCommandIsPathOpenInput]')
+			input.checked = bytes[bi++]
+			bi++	// Ignore second byte
+
+			input = command.querySelector('[id^=pdcCommandRadiusInput]')
+			input.value = DEFAULT_RADIUS
+		}
+
+		input = command.querySelector('[id^=pdcCommandNumberOfPointsInput]')
+		input.value = parseU16(bytes[bi++], bytes[bi++])
+		commandNumberOfPointsOnChange({ target: input })
+
+		if (type === CMD_TYPE_CIRCLE && Number(input.value) != 1) {
+			onError("Expected only 1 point for circle, got " + input.value)
+			return
+		}
+
+		points = command.querySelector('.points').children
+		for (j = 0; j < points.length; j++) {
+			point = points[j]
+
+			input = point.querySelector('[id^=pdcPointX]')
+			input.value = parseU16(bytes[bi++], bytes[bi++])
+
+			input = point.querySelector('[id^=pdcPointY]')
+			input.value = parseU16(bytes[bi++], bytes[bi++])
+		}
+	}
+
+	inputOnChange()
+}
+
+function fileUploadOnChange(e)
+{
+	e.target.files[0].bytes().then(parsePdc)
+}
+
+function uint8FromInputs()
+{
+	var i, j, n
+	var pdc
+	var input, command, commandType, commands, point, points
+
+	pdci = 0
+	pdc = []
+
+	switch (pdcFileFormatInput.value) {
+	case 'PDCI':
+		pdc.push('P'.charCodeAt(0))
+		pdc.push('D'.charCodeAt(0))
+		pdc.push('C'.charCodeAt(0))
+		pdc.push('I'.charCodeAt(0))
+		break
+	case 'PDCS':
+		onError('PDCS is not yet implemented')
+		break
+	default:
+		onError('Invalid PDC File Format')
+	}
+
+	// Updated at the end
+	pdc.push(0)
+	pdc.push(0)
+	pdc.push(0)
+	pdc.push(0)
+
+	pdc.push(Number(pdcImageVersionInput.value))
+	pdc.push(Number(pdcImageReservedInput.value))
+
+	n = Number(pdcImageViewBoxXInput.value)
+	pdc.push((n >> 0) & 0xFF)
+	pdc.push((n >> 8) & 0xFF)
+
+	n = Number(pdcImageViewBoxYInput.value)
+	pdc.push((n >> 0) & 0xFF)
+	pdc.push((n >> 8) & 0xFF)
+
+	n = Number(pdcNumberOfCommandsInput.value)
+	pdc.push((n >> 0) & 0xFF)
+	pdc.push((n >> 8) & 0xFF)
+
+	commands = pdcFileFormatContainer.querySelectorAll('.command')
+
+	for (i = 0; i < commands.length; i++) {
+		command = commands[i]
+
+		input = command.querySelector('[id^=pdcCommandTypeInput]')
+		commandType = Number(input.value)
+		pdc.push(commandType)
+
+		input = command.querySelector('[id^=pdcCommandIsHiddenInput]')
+		pdc.push(input.checked ? 0x01 : 0x00)
+
+		input = command.querySelector('[id^=pdcCommandStrokeColorInput]')
+		pdc.push(Number(input.value))
+
+		input = command.querySelector('[id^=pdcCommandStrokeWidthInput]')
+		pdc.push(Number(input.value))
+
+		input = command.querySelector('[id^=pdcCommandFillColorInput]')
+		pdc.push(Number(input.value))
+
+		switch (commandType) {
+		default:
+			input = command.querySelector('[id^=pdcCommandIsPathOpenInput]')
+			pdc.push(input.checked ? 0x01 : 0x00)
+			pdc.push(0)
+			break
+		case CMD_TYPE_CIRCLE:
+			input = command.querySelector('[id^=pdcCommandRadiusInput]')
+			n = Number(input.value)
+			pdc.push((n >> 0) & 0xFF)
+			pdc.push((n >> 8) & 0xFF)
+			break
+		}
+
+		input = command.querySelector('[id^=pdcCommandNumberOfPointsInput]')
+		n = Number(input.value)
+		pdc.push((n >> 0) & 0xFF)
+		pdc.push((n >> 8) & 0xFF)
+
+		points = command.querySelectorAll('.point')
+		for (j = 0; j < points.length; j++) {
+			point = points[j]
+
+			input = point.querySelector('[id^=pdcPointX]')
+			n = Number(input.value)
+			pdc.push((n >> 0) & 0xFF)
+			pdc.push((n >> 8) & 0xFF)
+
+			input = point.querySelector('[id^=pdcPointY]')
+			n = Number(input.value)
+			pdc.push((n >> 0) & 0xFF)
+			pdc.push((n >> 8) & 0xFF)
+		}
+	}
+
+	n = pdc.length - 8
+	pdc[4] = (n >>  0) & 0x00FF
+	pdc[5] = (n >>  8) & 0x00FF
+	pdc[6] = (n >> 16) & 0x00FF
+	pdc[7] = (n >> 24) & 0x00FF
+
+	return new Uint8Array(pdc)
+}
+
+function inputOnChange()
+{
+	var i, name, pdc, blob, url
+
+	name = 'image.pdc'
+	pdc = uint8FromInputs()
+
+	pdcHex.innerText = ''
+	for (i = 0; i < pdc.length; i++) {
+		if (i % 16 == 0) pdcHex.innerText += '\n'
+		pdcHex.innerText += pdc[i].toString(16).padStart(2, 0) + ' '
+	}
+	pdcHex.innerText = pdcHex.innerText.trim()
+
+	base64 = pdc.toBase64()
+	pdcBase64.innerText = base64
+	previewLink.href = 'https://pdc-tool.heikobehrens.com/render?data=' + base64 + '&filename=' + name
+
+	blob = new Blob([pdc], { type: 'application/octet-stream' })
+	downloadLink.href = window.URL.createObjectURL(blob)
+	downloadLink.download = name
+
+	url = new URL(location)
+	url.searchParams.set('data', base64)
+	history.pushState({}, '', url)
+
+	// TODO(irek): Restore state from URL on page load
+}
+
+function appendInput(parent, input, labelText, labelTitle)
+{
+	var wrapper, label
+
+	wrapper = document.createElement('div')
+	label = document.createElement('label')
+	space = document.createTextNode(' ')
+
+	label.setAttribute('for', input.id)
+	label.innerText = labelText
+
+	if (labelTitle)
+		label.title = labelTitle
+
+	wrapper.hidden = input.hidden
+	parent.appendChild(wrapper)
+	wrapper.appendChild(label)
+	wrapper.appendChild(space)
+	wrapper.appendChild(input)
+
+	input.addEventListener('change', inputOnChange)
+}
+
+function createOption(value, text, selected, disabled)
+{
+	var option
+
+	option = document.createElement('option')
+	option.value = value
+	option.text = text
+	option.selected = !!selected
+	option.disabled = !!disabled
+
+	return option
+}
+
+function createColorPickerSelect()
+{
+	var input, option
+
+	input = document.createElement('select')
+
+	input.appendChild(createOption(0, 'None'))
+	input.appendChild(createOption(0xC0 | 0, 'Black'))
+	input.appendChild(createOption(0xC0 | 1, 'OxfordBlue'))
+	input.appendChild(createOption(0xC0 | 2, 'DukeBlue'))
+	input.appendChild(createOption(0xC0 | 3, 'Blue'))
+	input.appendChild(createOption(0xC0 | 4, 'DarkGreen'))
+	input.appendChild(createOption(0xC0 | 5, 'MidnightGreen'))
+	input.appendChild(createOption(0xC0 | 6, 'CobaltBlue'))
+	input.appendChild(createOption(0xC0 | 7, 'BlueMoon'))
+	input.appendChild(createOption(0xC0 | 8, 'IslamicGreen'))
+	input.appendChild(createOption(0xC0 | 9, 'JaegerGreen'))
+	input.appendChild(createOption(0xC0 | 10, 'TiffanyBlue'))
+	input.appendChild(createOption(0xC0 | 11, 'VividCerulean'))
+	input.appendChild(createOption(0xC0 | 12, 'Green'))
+	input.appendChild(createOption(0xC0 | 13, 'Malachite'))
+	input.appendChild(createOption(0xC0 | 14, 'MediumSpringGreen'))
+	input.appendChild(createOption(0xC0 | 15, 'Cyan'))
+	input.appendChild(createOption(0xC0 | 16, 'BulgarianRose'))
+	input.appendChild(createOption(0xC0 | 17, 'ImperialPurple'))
+	input.appendChild(createOption(0xC0 | 18, 'Indigo'))
+	input.appendChild(createOption(0xC0 | 19, 'ElectricUltramarine'))
+	input.appendChild(createOption(0xC0 | 20, 'ArmyGreen'))
+	input.appendChild(createOption(0xC0 | 21, 'DarkGray'))
+	input.appendChild(createOption(0xC0 | 22, 'Liberty'))
+	input.appendChild(createOption(0xC0 | 23, 'VeryLightBlue'))
+	input.appendChild(createOption(0xC0 | 24, 'KellyGreen'))
+	input.appendChild(createOption(0xC0 | 25, 'MayGreen'))
+	input.appendChild(createOption(0xC0 | 26, 'CadetBlue'))
+	input.appendChild(createOption(0xC0 | 27, 'PictonBlue'))
+	input.appendChild(createOption(0xC0 | 28, 'BrightGreen'))
+	input.appendChild(createOption(0xC0 | 29, 'ScreaminGreen'))
+	input.appendChild(createOption(0xC0 | 30, 'MediumAquamarine'))
+	input.appendChild(createOption(0xC0 | 31, 'ElectricBlue'))
+	input.appendChild(createOption(0xC0 | 32, 'DarkCandyAppleRed'))
+	input.appendChild(createOption(0xC0 | 33, 'JazzberryJam'))
+	input.appendChild(createOption(0xC0 | 34, 'Purple'))
+	input.appendChild(createOption(0xC0 | 35, 'VividViolet'))
+	input.appendChild(createOption(0xC0 | 36, 'WindsorTan'))
+	input.appendChild(createOption(0xC0 | 37, 'RoseVale'))
+	input.appendChild(createOption(0xC0 | 38, 'Purpureus'))
+	input.appendChild(createOption(0xC0 | 39, 'LavenderIndigo'))
+	input.appendChild(createOption(0xC0 | 40, 'Limerick'))
+	input.appendChild(createOption(0xC0 | 41, 'Brass'))
+	input.appendChild(createOption(0xC0 | 42, 'LightGray'))
+	input.appendChild(createOption(0xC0 | 43, 'BabyBlueEyes'))
+	input.appendChild(createOption(0xC0 | 44, 'SpringBud'))
+	input.appendChild(createOption(0xC0 | 45, 'Inchworm'))
+	input.appendChild(createOption(0xC0 | 46, 'MintGreen'))
+	input.appendChild(createOption(0xC0 | 47, 'Celeste'))
+	input.appendChild(createOption(0xC0 | 48, 'Red'))
+	input.appendChild(createOption(0xC0 | 49, 'Folly'))
+	input.appendChild(createOption(0xC0 | 50, 'FashionMagenta'))
+	input.appendChild(createOption(0xC0 | 51, 'Magenta'))
+	input.appendChild(createOption(0xC0 | 52, 'Orange'))
+	input.appendChild(createOption(0xC0 | 53, 'SunsetOrange'))
+	input.appendChild(createOption(0xC0 | 54, 'BrilliantRose'))
+	input.appendChild(createOption(0xC0 | 55, 'ShockingPink'))
+	input.appendChild(createOption(0xC0 | 56, 'ChromeYellow'))
+	input.appendChild(createOption(0xC0 | 57, 'Rajah'))
+	input.appendChild(createOption(0xC0 | 58, 'Melon'))
+	input.appendChild(createOption(0xC0 | 59, 'RichBrilliantLavender'))
+	input.appendChild(createOption(0xC0 | 60, 'Yellow'))
+	input.appendChild(createOption(0xC0 | 61, 'Icterine'))
+	input.appendChild(createOption(0xC0 | 62, 'PastelYellow'))
+	input.appendChild(createOption(0xC0 | 63, 'White'))
+
+	return input
+}
+
+function pointNew(parent)
+{
+	var wrapper, input, label, node
+
+	index = uniqueIndex++
+
+	wrapper = document.createElement('li')
+	wrapper.classList.add('point')
+	parent.appendChild(wrapper)
+
+	input = document.createElement('input')
+	label = document.createElement('label')
+	node = document.createTextNode(' ')
+
+	input.id = 'pdcPointX' + index
+	input.type = 'number'
+	input.value = 0
+	input.min = 0
+	input.max = 0xFFFF
+	label.setAttribute('for', input.id)
+	label.innerText = 'x'
+	input.addEventListener('change', inputOnChange)
+	wrapper.appendChild(label)
+	wrapper.appendChild(node)
+	wrapper.appendChild(input)
+
+	node = document.createTextNode(' ')
+	wrapper.appendChild(node)
+
+	input = document.createElement('input')
+	label = document.createElement('label')
+	node = document.createTextNode(' ')
+
+	input.id = 'pdcPointY' + index
+	input.type = 'number'
+	input.value = 0
+	input.min = 0
+	input.max = 0xFFFF
+	label.setAttribute('for', input.id)
+	label.innerText = 'y'
+	input.addEventListener('change', inputOnChange)
+	wrapper.appendChild(label)
+	wrapper.appendChild(node)
+	wrapper.appendChild(input)
+}
+
+function commandNumberOfPointsOnChange(e)
+{
+	var i, count, list, elements, input
+
+	list = e.target.parentElement.parentElement.querySelector('.points')
+	count = Number(e.target.value)
+
+	for (i = list.children.length; i < count; i++)
+		pointNew(list)
+
+	for (i = list.children.length; i > count; i--)
+		list.removeChild(list.lastElementChild)
+}
+
+function commandNew(parent)
+{
+	var index, wrapper, input, option
+
+	index = uniqueIndex++
+
+	wrapper = document.createElement('li')
+	wrapper.classList.add('command')
+	parent.appendChild(wrapper)
+
+	input = document.createElement('select')
+	input.id = 'pdcCommandTypeInput' + index
+	input.appendChild(createOption(CMD_TYPE_PATH, 'Path', DEFAULT_CMD_TYPE == CMD_TYPE_PATH))
+	input.appendChild(createOption(CMD_TYPE_CIRCLE, 'Circle', DEFAULT_CMD_TYPE == CMD_TYPE_CIRCLE))
+	input.appendChild(createOption(CMD_TYPE_PRECISE, 'Precise path', false, true))
+	appendInput(wrapper, input, 'Type')
+
+	input = document.createElement('input')
+	input.id = 'pdcCommandIsHiddenInput' + index
+	input.type = 'checkbox'
+	appendInput(wrapper, input, 'Hidden')
+
+	input = createColorPickerSelect()
+	input.id = 'pdcCommandStrokeColorInput' + index
+	appendInput(wrapper, input, 'Stroke color')
+
+	input = document.createElement('input')
+	input.id = 'pdcCommandStrokeWidthInput' + index
+	input.type = 'number'
+	input.value = 0
+	input.min = 0
+	input.max = 0xFF
+	appendInput(wrapper, input, 'Stroke width')
+
+	input = createColorPickerSelect()
+	input.id = 'pdcCommandFillColorInput' + index
+	appendInput(wrapper, input, 'Fill color')
+
+	input = document.createElement('input')
+	input.id = 'pdcCommandIsPathOpenInput' + index
+	input.type = 'checkbox'
+	appendInput(wrapper, input, 'Is path open')
+
+	input = document.createElement('input')
+	input.id = 'pdcCommandRadiusInput' + index
+	input.type = 'number'
+	input.value = DEFAULT_RADIUS
+	input.min = 0
+	input.max = 0xFFFF
+	appendInput(wrapper, input, 'Radius')
+
+	input = document.createElement('input')
+	input.id = 'pdcCommandNumberOfPointsInput' + index
+	input.type = 'number'
+	input.value = '1'
+	input.min = 1
+	input.max = 0xFFFF
+	input.addEventListener('change', commandNumberOfPointsOnChange)
+	appendInput(wrapper, input, 'Number of points')
+
+	list = document.createElement('ol')
+	list.classList.add('points')
+	wrapper.appendChild(list)
+
+	commandNumberOfPointsOnChange({ target: input })
+}
+
+function numberOfCommandsOnChange(e)
+{
+	var i, count, list, elements, input
+
+	list = e.target.parentElement.parentElement.querySelector('.commands')
+	count = Number(e.target.value)
+
+	for (i = list.children.length; i < count; i++)
+		commandNew(list)
+
+	for (i = list.children.length; i > count; i--)
+		list.removeChild(list.lastElementChild)
+}
+
+function pdcImageFileNew(parent)
+{
+	var input
+
+	input = document.createElement('input')
+	input.id = 'pdcMagicWordInput'
+	input.type = 'text'
+	input.value = 'PDCI'
+	input.disabled = true
+	input.hidden = true
+	appendInput(parent, input, 'Magic word')
+
+	input = document.createElement('input')
+	input.id = 'pdcImageSizeInput'
+	input.type = 'number'
+	input.min = '0'
+	input.max = 0xFFFFFFFF
+	input.value = '0'
+	input.disabled = true
+	input.hidden = true
+	appendInput(parent, input, 'Image size')
+
+	input = document.createElement('input')
+	input.id = 'pdcImageVersionInput'
+	input.type = 'number'
+	input.value = '1'
+	input.min = 0
+	input.max = 0xFF
+	input.hidden = true
+	appendInput(parent, input, 'Version')
+
+	input = document.createElement('input')
+	input.id = 'pdcImageReservedInput'
+	input.type = 'number'
+	input.value = '0'
+	input.min = 0
+	input.max = 0xFF
+	input.disabled = true
+	input.hidden = true
+	appendInput(parent, input, 'Reserved')
+
+	input = document.createElement('input')
+	input.id = 'pdcImageViewBoxXInput'
+	input.type = 'number'
+	input.value = DEFAULT_VIEWBOX_X
+	input.min = 1
+	input.max = 0xFFFF
+	appendInput(parent, input, 'View box x')
+
+	input = document.createElement('input')
+	input.id = 'pdcImageViewBoxYInput'
+	input.type = 'number'
+	input.value = DEFAULT_VIEWBOX_Y
+	input.min = 1
+	input.max = 0xFFFF
+	appendInput(parent, input, 'View box y')
+
+	input = document.createElement('input')
+	input.id = 'pdcNumberOfCommandsInput'
+	input.type = 'number'
+	input.value = DEFAULT_CMD_COUNT
+	input.min = 1
+	input.max = 0xFFFF
+	input.addEventListener('change', numberOfCommandsOnChange)
+	appendInput(parent, input, 'Number of commands')
+
+	list = document.createElement('ol')
+	list.classList.add('commands')
+	parent.appendChild(list)
+
+	numberOfCommandsOnChange({ target: input })
+}
+
+function pdcFileFormatOnChange(e)
+{
+	removeChildren(pdcFileFormatContainer)
+
+	switch (e.target.value) {
+	case 'PDCI':
+		pdcImageFileNew(pdcFileFormatContainer)
+		break
+	case 'PDCS':
+		onError('PDCS is not yet implemented')
+		break
+	default:
+		onError('Invalid PDC File Format')
+	}
+}
+
+function main()
+{
+	var url, data
+
+// window.addEventListener("popstate", (event) => {
+// 	console.log(event)
+// 	url = new URL(location.href)
+// 	data = url.searchParams.get('data')
+// 
+// 	if (data)
+// 		parsePdc(Uint8Array.fromBase64(data))
+// });
+
+	fileUpload.addEventListener('change', fileUploadOnChange)
+
+	pdcFileFormatInput.addEventListener('change', pdcFileFormatOnChange)
+	pdcFileFormatOnChange({ target: pdcFileFormatInput })
+
+	url = new URL(location.href)
+	data = url.searchParams.get('data')
+
+	if (data)
+		parsePdc(Uint8Array.fromBase64(data))
+
+	inputOnChange()
+}
+
+main()
+</script>
