@@ -982,6 +982,9 @@ function windowOnKeydown(event)
 function pdcOnChange(skipHistoryUpdate)
 {
 	var i, url, command, point, row, binary, name, url
+	var isSomethingSelected
+
+	isSomethingSelected = false
 
 	pdcNameInput.value = pdc.name
 	pdcFileFormatInput.value = pdc.format
@@ -999,6 +1002,9 @@ function pdcOnChange(skipHistoryUpdate)
 
 		if (command.strokeWidth === 0)
 			command.strokeColor = colorNameToValueMap.None
+
+		if (command.selected.length > 0)
+			isSomethingSelected = true
 
 		row = pdcCommandsTableBody.children[i]
 		row.classList.toggle('selected', command.selected.length)
@@ -1034,9 +1040,6 @@ function pdcOnChange(skipHistoryUpdate)
 		activeXInput.disabled = false
 		activeYInput.disabled = false
 		activeAddButton.disabled = false
-		selectedRemoveButton.disabled = false
-		selectedFlipHorizontallyButton.disabled = false
-		selectedFlipVerticallyButton.disabled = false
 	} else {
 		activeSpan.classList.remove('active')
 
@@ -1046,10 +1049,11 @@ function pdcOnChange(skipHistoryUpdate)
 		activeXInput.disabled = true
 		activeYInput.disabled = true
 		activeAddButton.disabled = true
-		selectedRemoveButton.disabled = true
-		selectedFlipHorizontallyButton.disabled = true
-		selectedFlipVerticallyButton.disabled = true
 	}
+
+	selectedRemoveButton.disabled = !isSomethingSelected
+	selectedFlipHorizontallyButton.disabled = !isSomethingSelected
+	selectedFlipVerticallyButton.disabled = !isSomethingSelected
 
 	selectAllButton.innerText = isEveryPointSelected() ? 'Deselect all' : 'Select all'
 

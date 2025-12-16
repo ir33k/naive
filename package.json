@@ -55,6 +55,11 @@
           "type": "bitmap",
           "name": "FONT0",
           "file": "font0.png"
+        },
+        {
+          "type": "raw",
+          "name": "FONT1",
+          "file": "font1.pdc"
         }
       ]
     }

@@ -6,6 +6,8 @@
 #define FONT0H	7
 #define FONT1H	55
 #define FONT2H	85
+#define FONT12W	60
+#define SHADOWW	14
 #define BLOBN	20
 
 enum icon {
@@ -64,12 +66,15 @@ typedef uint16_t	u16;
 typedef uint32_t	u32;
 typedef enum vibe	Vibe;
 typedef enum align	Align;
+typedef struct tm	Tm;
 
 static void	configure	();
+static Tm*	now		();
 static void	vibe		(Vibe);
 static char*	formatstr	(char*);
 static GRect	glyphrect	(char);
 static void	drawpixel	(GBitmapDataRowInfo, i16, GColor);
+static void	dither		(Layer*, GContext*, u8);
 static void	onload		(Window*);
 static void	onunload	(Window*);
 static void	ontick		(struct tm*, TimeUnits);
@@ -87,8 +92,12 @@ static void	ontext0		(Layer*, GContext*);
 static void	ontext1		(Layer*, GContext*);
 static void	ontext2		(Layer*, GContext*);
 static void	ontext3		(Layer*, GContext*);
-static void	onhours		(Layer*, GContext*);
-static void	onminutes	(Layer*, GContext*);
+static void	onhour0		(Layer*, GContext*);
+static void	onhour1		(Layer*, GContext*);
+static void	onhour2		(Layer*, GContext*);
+static void	onminute0	(Layer*, GContext*);
+static void	onminute1	(Layer*, GContext*);
+static void	onminute2	(Layer*, GContext*);
 
 static struct {
 	GColor	bg;
@@ -108,9 +117,14 @@ static Layer*		text0;
 static Layer*		text1;
 static Layer*		text2;
 static Layer*		text3;
-static Layer*		hours;
-static Layer*		minutes;
+static Layer*		hour0;
+static Layer*		hour1;
+static Layer*		hour2;
+static Layer*		minute0;
+static Layer*		minute1;
+static Layer*		minute2;
 static GBitmap*		font0;
+static GDrawCommandImage*	font1;
 static u8		battery;
 static bool		charging;
 static HealthValue	steps;
@@ -199,6 +213,15 @@ configure()
 	tick_timer_service_subscribe(conf.seconds == -1 ? SECOND_UNIT : MINUTE_UNIT, ontick);
 
 	layer_mark_dirty(body);
+}
+
+Tm*
+now()
+{
+	time_t timestamp;
+
+	timestamp = time(0);
+	return localtime(&timestamp);
 }
 
 void
@@ -325,6 +348,41 @@ drawpixel(GBitmapDataRowInfo info, i16 x, GColor color)
 }
 
 void
+dither(Layer *layer, GContext *ctx, u8 amount)
+{
+	static const uint8_t map[8][8] = {
+		{   0, 128,  32, 160,   8, 136,  40, 168 },
+		{ 192,  64, 224,  96, 200,  72, 232, 104 },
+		{  48, 176,  16, 144,  56, 184,  24, 152 },
+		{ 240, 112, 208,  80, 248, 120, 216,  88 },
+		{  12, 140,  44, 172,   4, 132,  36, 164 },
+		{ 204,  76, 236, 108, 196,  68, 228, 100 },
+		{  60, 188,  28, 156,  52, 180,  20, 148 },
+		{ 252, 124, 220,  92, 244, 116, 212,  84 }
+	};
+	GRect rect;
+	GBitmap *fb;
+	GBitmapDataRowInfo info;
+	i16 x, y, maxx, maxy;
+
+	rect = layer_get_frame(layer);
+	maxy = rect.origin.y + rect.size.h;
+	fb = graphics_capture_frame_buffer(ctx);
+
+	for (y = rect.origin.y; y < maxy; y++) {
+		info = gbitmap_get_data_row_info(fb, y);
+		maxx = rect.origin.x + rect.size.w;
+
+		if (info.max_x < maxx)
+			maxx = info.max_x;
+
+		for (x = rect.origin.x; x < maxx; x++)
+			if (amount > map[y%8][x%8])
+				drawpixel(info, x, conf.bg);
+	}
+}
+
+void
 onload(Window *win)
 {
 	Layer *root;
@@ -368,17 +426,46 @@ onload(Window *win)
 
 	rect.origin.y = MARGIN + FONT0H + MARGIN;
 	rect.size.h = FONT1H;
+	rect.size.w = SHADOWW;
 
-	hours = layer_create(rect);
-	layer_set_update_proc(hours, onhours);
-	layer_add_child(body, hours);
+	hour0 = layer_create(rect);
+	layer_set_update_proc(hour0, onhour0);
+	layer_add_child(body, hour0);
 
+	rect.origin.x += SHADOWW + SPACING;
+	rect.size.w = FONT12W;
+
+	hour1 = layer_create(rect);
+	layer_set_update_proc(hour1, onhour1);
+	layer_add_child(body, hour1);
+
+	rect.origin.x += FONT12W + SPACING;
+
+	hour2 = layer_create(rect);
+	layer_set_update_proc(hour2, onhour2);
+	layer_add_child(body, hour2);
+
+	rect.origin.x = MARGIN;
 	rect.origin.y = MARGIN + FONT0H + MARGIN + FONT1H + SPACING;
 	rect.size.h = FONT2H;
+	rect.size.w = SHADOWW;
 
-	minutes = layer_create(rect);
-	layer_set_update_proc(minutes, onminutes);
-	layer_add_child(body, minutes);
+	minute0 = layer_create(rect);
+	layer_set_update_proc(minute0, onminute0);
+	layer_add_child(body, minute0);
+
+	rect.origin.x += SHADOWW + SPACING;
+	rect.size.w = FONT12W;
+
+	minute1 = layer_create(rect);
+	layer_set_update_proc(minute1, onminute1);
+	layer_add_child(body, minute1);
+
+	rect.origin.x += FONT12W + SPACING;
+
+	minute2 = layer_create(rect);
+	layer_set_update_proc(minute2, onminute2);
+	layer_add_child(body, minute2);
 }
 
 void
@@ -389,8 +476,12 @@ onunload(Window *win)
 	layer_destroy(text1);
 	layer_destroy(text2);
 	layer_destroy(text3);
-	layer_destroy(hours);
-	layer_destroy(minutes);
+	layer_destroy(hour0);
+	layer_destroy(hour1);
+	layer_destroy(hour2);
+	layer_destroy(minute0);
+	layer_destroy(minute1);
+	layer_destroy(minute2);
 }
 
 void
@@ -402,12 +493,17 @@ ontick(struct tm *_time, TimeUnits change)
 	layer_mark_dirty(text3);
 
 	if (change & HOUR_UNIT) {
-		layer_mark_dirty(hours);
+		layer_mark_dirty(hour0);
+		layer_mark_dirty(hour1);
+		layer_mark_dirty(hour2);
 		vibe(conf.hour);
 	}
 
-	if (change & MINUTE_UNIT)
-		layer_mark_dirty(minutes);
+	if (change & MINUTE_UNIT) {
+		layer_mark_dirty(minute0);
+		layer_mark_dirty(minute1);
+		layer_mark_dirty(minute2);
+	}
 }
 
 void
@@ -545,8 +641,7 @@ void
 ontext(Layer *layer, GContext *ctx, char *fmt, Align align)
 {
 	char str[32];
-	time_t timestamp;
-	struct tm *tm;
+	Tm *tm;
 	GRect rect, glyph;
 	GBitmap *fb;
 	GBitmapDataRowInfo info;
@@ -558,8 +653,7 @@ ontext(Layer *layer, GContext *ctx, char *fmt, Align align)
 	bool flipx;
 
 	flipx = 0;
-	timestamp = time(0);
-	tm = localtime(&timestamp);
+	tm = now();
 
 	strftime(str, sizeof str, formatstr(fmt), tm);
 
@@ -668,53 +762,139 @@ ontext3(Layer *layer, GContext *ctx)
 }
 
 void
-onhours(Layer *layer, GContext *ctx)
+onhour0(Layer *layer, GContext *ctx)
 {
-	GRect rect;
+	Tm *tm;
+	char buf[4];
+	u8 i;
+	GDrawCommandList *cmds;
+	GDrawCommand *cmd;
 
-	graphics_context_set_fill_color(ctx, conf.bg);
+	tm = now();
+	strftime(buf, sizeof buf, clock_is_24h_style() ? "%H" : "%I", tm);
+	i = buf[0] - '0';
 
-	rect = layer_get_bounds(layer);
-	graphics_fill_rect(ctx, rect, 0, GCornerNone);
+	cmds = gdraw_command_image_get_command_list(font1);
+	cmd = gdraw_command_list_get_command(cmds, i);
 
-	graphics_context_set_fill_color(ctx, GColorDarkGray);
+	gdraw_command_set_hidden(cmd, false);
+	gdraw_command_set_stroke_color(cmd, conf.fg);
+	gdraw_command_set_fill_color(cmd, conf.fg);
+	gdraw_command_draw(ctx, cmd);
 
-	rect.size.w = 14;
-	graphics_fill_rect(ctx, rect, 2, GCornersLeft);
-
-	graphics_context_set_fill_color(ctx, conf.fg);
-
-	rect.origin.x += 14 + SPACING;
-	rect.size.w = 60;
-	graphics_fill_rect(ctx, rect, 2, GCornersAll);
-
-	rect.origin.x += 60 + SPACING;
-	graphics_fill_rect(ctx, rect, 2, GCornersAll);
+	dither(layer, ctx, 128);
 }
 
 void
-onminutes(Layer *layer, GContext *ctx)
+onhour1(Layer *layer, GContext *ctx)
 {
-	GRect rect;
+	Tm *tm;
+	char buf[4];
+	u8 i;
+	GDrawCommandList *cmds;
+	GDrawCommand *cmd;
 
-	graphics_context_set_fill_color(ctx, conf.bg);
+	tm = now();
+	strftime(buf, sizeof buf, clock_is_24h_style() ? "%H" : "%I", tm);
+	i = buf[0] - '0';
 
-	rect = layer_get_bounds(layer);
-	graphics_fill_rect(ctx, rect, 0, GCornerNone);
+	cmds = gdraw_command_image_get_command_list(font1);
+	cmd = gdraw_command_list_get_command(cmds, i);
 
-	graphics_context_set_fill_color(ctx, GColorDarkGray);
+	gdraw_command_set_hidden(cmd, false);
+	gdraw_command_set_stroke_color(cmd, conf.fg);
+	gdraw_command_set_fill_color(cmd, conf.fg);
+	gdraw_command_draw(ctx, cmd);
+}
 
-	rect.size.w = 14;
-	graphics_fill_rect(ctx, rect, 2, GCornersLeft);
+void
+onhour2(Layer *layer, GContext *ctx)
+{
+	Tm *tm;
+	char buf[4];
+	u8 i;
+	GDrawCommandList *cmds;
+	GDrawCommand *cmd;
 
-	graphics_context_set_fill_color(ctx, conf.fg);
+	tm = now();
+	strftime(buf, sizeof buf, clock_is_24h_style() ? "%H" : "%I", tm);
+	i = buf[1] - '0';
 
-	rect.origin.x += 14 + SPACING;
-	rect.size.w = 60;
-	graphics_fill_rect(ctx, rect, 2, GCornersAll);
+	cmds = gdraw_command_image_get_command_list(font1);
+	cmd = gdraw_command_list_get_command(cmds, i);
 
-	rect.origin.x += 60 + SPACING;
-	graphics_fill_rect(ctx, rect, 2, GCornersAll);
+	gdraw_command_set_hidden(cmd, false);
+	gdraw_command_set_stroke_color(cmd, conf.fg);
+	gdraw_command_set_fill_color(cmd, conf.fg);
+	gdraw_command_draw(ctx, cmd);
+}
+
+void
+onminute0(Layer *layer, GContext *ctx)
+{
+	Tm *tm;
+	char buf[4];
+	u8 i;
+	GDrawCommandList *cmds;
+	GDrawCommand *cmd;
+
+	tm = now();
+	strftime(buf, sizeof buf, "%M", tm);
+	i = buf[0] - '0';
+
+	cmds = gdraw_command_image_get_command_list(font1);
+	cmd = gdraw_command_list_get_command(cmds, i);
+
+	gdraw_command_set_hidden(cmd, false);
+	gdraw_command_set_stroke_color(cmd, conf.fg);
+	gdraw_command_set_fill_color(cmd, conf.fg);
+	gdraw_command_draw(ctx, cmd);
+
+	dither(layer, ctx, 128);
+}
+
+void
+onminute1(Layer *layer, GContext *ctx)
+{
+	Tm *tm;
+	char buf[4];
+	u8 i;
+	GDrawCommandList *cmds;
+	GDrawCommand *cmd;
+
+	tm = now();
+	strftime(buf, sizeof buf, "%M", tm);
+	i = buf[0] - '0';
+
+	cmds = gdraw_command_image_get_command_list(font1);
+	cmd = gdraw_command_list_get_command(cmds, i);
+
+	gdraw_command_set_hidden(cmd, false);
+	gdraw_command_set_stroke_color(cmd, conf.fg);
+	gdraw_command_set_fill_color(cmd, conf.fg);
+	gdraw_command_draw(ctx, cmd);
+}
+
+void
+onminute2(Layer *layer, GContext *ctx)
+{
+	Tm *tm;
+	char buf[4];
+	u8 i;
+	GDrawCommandList *cmds;
+	GDrawCommand *cmd;
+
+	tm = now();
+	strftime(buf, sizeof buf, "%M", tm);
+	i = buf[1] - '0';
+
+	cmds = gdraw_command_image_get_command_list(font1);
+	cmd = gdraw_command_list_get_command(cmds, i);
+
+	gdraw_command_set_hidden(cmd, false);
+	gdraw_command_set_stroke_color(cmd, conf.fg);
+	gdraw_command_set_fill_color(cmd, conf.fg);
+	gdraw_command_draw(ctx, cmd);
 }
 
 int
@@ -766,6 +946,7 @@ main(void)
 
 	/* Resources */
 	font0 = gbitmap_create_with_resource(RESOURCE_ID_FONT0);
+	font1 = gdraw_command_image_create_with_resource(RESOURCE_ID_FONT1);
 	blobi = 0;
 
 	/* Services */
@@ -781,6 +962,7 @@ main(void)
 	/* Cleanup */
 	window_destroy(win);
 	gbitmap_destroy(font0);
+	gdraw_command_image_destroy(font1);
 
 	return 0;
 }
