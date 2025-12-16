@@ -125,6 +125,7 @@ static Layer*		minute1;
 static Layer*		minute2;
 static GBitmap*		font0;
 static GDrawCommandImage*	font1;
+static GDrawCommandImage*	font2;
 static u8		battery;
 static bool		charging;
 static HealthValue	steps;
@@ -842,7 +843,7 @@ onminute0(Layer *layer, GContext *ctx)
 	strftime(buf, sizeof buf, "%M", tm);
 	i = buf[0] - '0';
 
-	cmds = gdraw_command_image_get_command_list(font1);
+	cmds = gdraw_command_image_get_command_list(font2);
 	cmd = gdraw_command_list_get_command(cmds, i);
 
 	gdraw_command_set_hidden(cmd, false);
@@ -866,7 +867,7 @@ onminute1(Layer *layer, GContext *ctx)
 	strftime(buf, sizeof buf, "%M", tm);
 	i = buf[0] - '0';
 
-	cmds = gdraw_command_image_get_command_list(font1);
+	cmds = gdraw_command_image_get_command_list(font2);
 	cmd = gdraw_command_list_get_command(cmds, i);
 
 	gdraw_command_set_hidden(cmd, false);
@@ -888,7 +889,7 @@ onminute2(Layer *layer, GContext *ctx)
 	strftime(buf, sizeof buf, "%M", tm);
 	i = buf[1] - '0';
 
-	cmds = gdraw_command_image_get_command_list(font1);
+	cmds = gdraw_command_image_get_command_list(font2);
 	cmd = gdraw_command_list_get_command(cmds, i);
 
 	gdraw_command_set_hidden(cmd, false);
@@ -947,6 +948,7 @@ main(void)
 	/* Resources */
 	font0 = gbitmap_create_with_resource(RESOURCE_ID_FONT0);
 	font1 = gdraw_command_image_create_with_resource(RESOURCE_ID_FONT1);
+	font2 = gdraw_command_image_create_with_resource(RESOURCE_ID_FONT2);
 	blobi = 0;
 
 	/* Services */

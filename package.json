@@ -60,6 +60,11 @@
           "type": "raw",
           "name": "FONT1",
           "file": "font1.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "FONT2",
+          "file": "font2.pdc"
         }
       ]
     }
