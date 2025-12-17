@@ -35,7 +35,7 @@ pre { max-width: 47ch; white-space: pre-wrap; line-break: anywhere }
 
 <button id=pdcAddPathButton>Add path</button>
 <button id=pdcAddCircleButton>Add circle</button>
-<button id=pdcAddPreciseButton disabled title="Not implemented">Add precise path</button>
+<button id=pdcAddPreciseButton>Add precise path</button>
 
 <p>
 <table border=1>
@@ -264,12 +264,17 @@ function parseU16(b1, b2)
 	return (Number(b1) & 0xFF) | ((Number(b2) & 0xFF) << 8)
 }
 
-function pointDistance(x1, y1, x2, y2)
+function pointDistance(p1, p2)
 {
 	var dx, dy
 
-	dx = Math.abs(x1 - x2)
-	dy = Math.abs(y1 - y2)
+	dx  = p1.x + (p1.xDecimal || 0) / 8
+	dx -= p2.x + (p2.xDecimal || 0) / 8
+	dx  = Math.abs(dx)
+
+	dy  = p1.y + (p1.yDecimal || 0) / 8
+	dy -= p2.y + (p2.yDecimal || 0) / 8
+	dy  = Math.abs(dy)
 
 	return Math.sqrt(dx * dx + dy * dy)
 }
@@ -319,16 +324,15 @@ function parsePdc(bytes)
 		switch (type) {
 		case COMMAND_PATH:
 		case COMMAND_CIRCLE:
-			break
 		case COMMAND_PRECISE:
-			onError('Precise path is currently not supported')
-			return
+			break
 		default:
 			onError('Invalid command type ' + type)
 			return
 		}
 
-		command = pdcCommandAdd(type)
+		command = createCommand(type)
+		pdc.commands.push(command)
 		command.isHidden = !!bytes[bi++]
 		command.strokeColor = bytes[bi++]
 		command.strokeWidth = bytes[bi++]
@@ -348,11 +352,21 @@ function parsePdc(bytes)
 			return
 		}
 
-		for (j = 0; j < pointsCount; j++)
-			command.points.push({
+		for (j = 0; j < pointsCount; j++) {
+			point = {
 				x: parseU16(bytes[bi++], bytes[bi++]),
 				y: parseU16(bytes[bi++], bytes[bi++]),
-			})
+			}
+
+			if (type === COMMAND_PRECISE) {
+				point.xDecimal = point.x & 0b00000111
+				point.yDecimal = point.y & 0b00000111
+				point.x = point.x >> 3
+				point.y = point.y >> 3
+			}
+
+			command.points.push(point)
+		}
 	}
 }
 
@@ -392,6 +406,10 @@ function actionUpOnClick(event)
 	var index, tmp
 
 	index = getTableRowIndex(event.target)
+
+	if (pdc.active.commandIndex === index)
+		pdc.active.commandIndex--
+
 	tmp = pdc.commands[index]
 	pdc.commands[index] = pdc.commands[index - 1]
 	pdc.commands[index - 1] = tmp
@@ -404,6 +422,10 @@ function actionDownOnClick(event)
 	var index, tmp
 
 	index = getTableRowIndex(event.target)
+
+	if (pdc.active.commandIndex === index)
+		pdc.active.commandIndex++
+
 	tmp = pdc.commands[index]
 	pdc.commands[index] = pdc.commands[index + 1]
 	pdc.commands[index + 1] = tmp
@@ -439,7 +461,7 @@ function actionRemoveOnClick(event)
 
 function pdcToBinary()
 {
-	var i, j, n, binary, command
+	var i, j, n, x, y, binary, command, point
 
 	binary = []
 
@@ -501,13 +523,20 @@ function pdcToBinary()
 		binary.push((n >> 8) & 0xFF)
 
 		for (j = 0; j < command.points.length; j++) {
-			n = command.points[j].x
-			binary.push((n >> 0) & 0xFF)
-			binary.push((n >> 8) & 0xFF)
+			point = command.points[j]
+			x = point.x
+			y = point.y
 
-			n = command.points[j].y
-			binary.push((n >> 0) & 0xFF)
-			binary.push((n >> 8) & 0xFF)
+			if (command.type === COMMAND_PRECISE ) {
+				x = (x << 3) | (point.xDecimal & 0b00000111)
+				y = (y << 3) | (point.yDecimal & 0b00000111)
+			}
+
+			binary.push((x >> 0) & 0xFF)
+			binary.push((x >> 8) & 0xFF)
+
+			binary.push((y >> 0) & 0xFF)
+			binary.push((y >> 8) & 0xFF)
 		}
 	}
 
@@ -671,7 +700,7 @@ function createTableCommandRow()
 
 function canvasOnChange()
 {
-	var i, j, delta, command, x, y
+	var i, j, delta, command, point, x, y
 
 	canvas.width = pdc.viewbox.width * pdc.scale + pdc.scale / 2
 	canvas.height = pdc.viewbox.height * pdc.scale + pdc.scale / 2
@@ -704,14 +733,23 @@ function canvasOnChange()
 
 		switch (command.type) {
 		case COMMAND_PATH:
+		case COMMAND_PRECISE:
 			ctx.beginPath()
 
 			for (j = 0; j < command.points.length; j++) {
-				x = command.points[j].x * pdc.scale
-				y = command.points[j].y * pdc.scale
+				point = command.points[j]
+
+				x = point.x * pdc.scale
+				y = point.y * pdc.scale
 
 				x += pdc.scale / 2 + 0.5
 				y += pdc.scale / 2 + 0.5
+
+				if (point.xDecimal)
+					x += point.xDecimal / 8 * pdc.scale
+
+				if (point.yDecimal)
+					y += point.yDecimal / 8 * pdc.scale
 
 				if (j == 0)
 					ctx.moveTo(x, y)
@@ -738,11 +776,19 @@ function canvasOnChange()
 			ctx.stroke()
 			
 			for (j = 0; j < command.points.length; j++) {
-				x = command.points[j].x * pdc.scale
-				y = command.points[j].y * pdc.scale
+				point = command.points[j]
+
+				x = point.x * pdc.scale
+				y = point.y * pdc.scale
 
 				x += pdc.scale / 2
 				y += pdc.scale / 2
+
+				if (point.xDecimal)
+					x += point.xDecimal / 8 * pdc.scale
+
+				if (point.yDecimal)
+					y += point.yDecimal / 8 * pdc.scale
 
 				if (command.selected.includes(j)) {
 					ctx.fillStyle = pdc.active.commandIndex === i && pdc.active.pointIndex === j ? COLOR_ACTIVE : COLOR_SELECTED
@@ -878,9 +924,9 @@ function canvasOnClick(event)
 		for (j = 0; j < command.points.length; j++) {
 			point = command.points[j]
 
-			distance = pointDistance(x, y, point.x, point.y)
+			distance = pointDistance({ x, y }, point)
 
-			if (distance < closest.distance) {
+			if (distance <= closest.distance) {
 				closest.distance = distance
 				closest.commandIndex = i
 				closest.pointIndex = j
@@ -1046,14 +1092,25 @@ function pdcOnChange(skipHistoryUpdate)
 		activeXInput.disabled = false
 		activeYInput.disabled = false
 		activeAddButton.disabled = false
+
+		if (command.type === COMMAND_PRECISE) {
+			activeXDecimalInput.value = point.xDecimal || 0
+			activeYDecimalInput.value = point.xDecimal || 0
+			activeXDecimalInput.disabled = false
+			activeYDecimalInput.disabled = false
+		}
 	} else {
 		activeSpan.classList.remove('active')
 
 		activeXInput.value = ''
+		activeXDecimalInput.value = ''
 		activeYInput.value = ''
+		activeYDecimalInput.value = ''
 
 		activeXInput.disabled = true
+		activeXDecimalInput.disabled = true
 		activeYInput.disabled = true
+		activeYDecimalInput.disabled = true
 		activeAddButton.disabled = true
 	}
 
@@ -1087,11 +1144,9 @@ function pdcOnChange(skipHistoryUpdate)
 	canvasOnChange()
 }
 
-function pdcCommandAdd(type)
+function createCommand(type)
 {
-	var command
-
-	command = {
+	return {
 		type: type,
 		isHidden: false,
 		strokeColor: colorNameToValueMap.None,
@@ -1102,19 +1157,6 @@ function pdcCommandAdd(type)
 		points: [],
 		selected: [],
 	}
-
-	switch (type) {
-	case COMMAND_CIRCLE:
-		command.radius = 8
-		break
-	case COMMAND_PRECISE:
-		onError('Precise path command type is not yet supported')
-		return
-	}
-
-	pdc.commands.push(command)
-
-	return command
 }
 
 function addPoint()
@@ -1290,29 +1332,45 @@ function main()
 	})
 
 	pdcAddPathButton.addEventListener('click', function () {
-		var command = pdcCommandAdd(COMMAND_PATH)
+		var command = createCommand(COMMAND_PATH)
 		command.points.push({ x: pdc.grid,     y: pdc.grid     })
 		command.points.push({ x: pdc.grid + 8, y: pdc.grid     })
 		command.points.push({ x: pdc.grid + 8, y: pdc.grid + 8 })
 		command.points.push({ x: pdc.grid,     y: pdc.grid + 8 })
+		pdc.commands.push(command)
 		pdcOnChange()
 	})
 
 	pdcAddCircleButton.addEventListener('click', function () {
-		var command = pdcCommandAdd(COMMAND_CIRCLE)
+		var command = createCommand(COMMAND_CIRCLE)
 		command.points.push({
 			x: Math.floor(pdc.viewbox.width / 2),
 			y: Math.floor(pdc.viewbox.height / 2),
 		})
+		command.radius = 8
+		pdc.commands.push(command)
 		pdcOnChange()
 	})
 
 	pdcAddPreciseButton.addEventListener('click', function () {
-		var command = pdcCommandAdd(COMMAND_PRECISE)
-		command.points.push({ x: pdc.grid,     y: pdc.grid     })
-		command.points.push({ x: pdc.grid + 8, y: pdc.grid     })
-		command.points.push({ x: pdc.grid + 8, y: pdc.grid + 8 })
-		command.points.push({ x: pdc.grid,     y: pdc.grid + 8 })
+		var command = createCommand(COMMAND_PRECISE)
+		command.points.push({
+			x: pdc.grid, xDecimal: 0,
+			y: pdc.grid, yDecimal: 0,
+		})
+		command.points.push({
+			x: pdc.grid + 8, xDecimal: 0,
+			y: pdc.grid,     yDecimal: 0,
+		})
+		command.points.push({
+			x: pdc.grid + 8, xDecimal: 0,
+			y: pdc.grid + 8, yDecimal: 0,
+		})
+		command.points.push({
+			x: pdc.grid,     xDecimal: 0,
+			y: pdc.grid + 8, yDecimal: 0,
+		})
+		pdc.commands.push(command)
 		pdcOnChange()
 	})
 
@@ -1334,7 +1392,7 @@ function main()
 		delta = Number(event.target.value) - point.x
 
 		selectedMoveBy(delta, 0)
-		canvasOnChange()
+		pdcOnChange()
 	})
 
 	activeYInput.addEventListener('change', function (event) {
@@ -1345,7 +1403,27 @@ function main()
 		delta = Number(event.target.value) - point.y
 
 		selectedMoveBy(0, delta)
-		canvasOnChange()
+		pdcOnChange()
+	})
+
+	activeXDecimalInput.addEventListener('change', function (event) {
+		var command, point
+
+		command = pdc.commands[pdc.active.commandIndex]
+		point = command.points[pdc.active.pointIndex]
+		point.xDecimal = Number(event.target.value)
+
+		pdcOnChange()
+	})
+
+	activeYDecimalInput.addEventListener('change', function (event) {
+		var command, point
+
+		command = pdc.commands[pdc.active.commandIndex]
+		point = command.points[pdc.active.pointIndex]
+		point.yDecimal = Number(event.target.value)
+
+		pdcOnChange()
 	})
 
 	activeAddButton.addEventListener('click', function () {
