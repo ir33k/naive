@@ -14,7 +14,7 @@ pre { max-width: 47ch; white-space: pre-wrap; line-break: anywhere }
 
 <title>PDC Editor</title>
 
-<h1>PDC Editor v0.4</h1>
+<h1>PDC Editor v0.5</h1>
 
 <p>
 <label for=fileUpload>Upload PDC file</label>
@@ -58,7 +58,7 @@ pre { max-width: 47ch; white-space: pre-wrap; line-break: anywhere }
 
 <p>
 <label for=scaleInput>Scale</label>
-<input id=scaleInput type=number min=1 max=16 value=6>
+<input id=scaleInput type=number min=1 max=32 value=6>
 
 <label for=gridInput>Grid</label>
 <input id=gridInput type=number min=0 max=255 value=1>
@@ -86,6 +86,7 @@ pre { max-width: 47ch; white-space: pre-wrap; line-break: anywhere }
 <ul>
 	<li><a id=downloadLink href=#>Download PDC</a>
 	<li><a id=previewLink href=#>Preview with pdc-tool@heikobehrens</a>
+	<li><a href=http://irek.gabr.pl/media/pdce-how.mp4>Demonstration video</a>
 	<li><a href=https://developer.rebble.io/guides/app-resources/pdc-format>Pebble Draw Command file format documentation</a>
 </ul>
 
@@ -105,11 +106,9 @@ Viewbox control canvas size.
 Use Add path, Add circle and Add precise buttons to add new commands to PDC whch content is displayed in table.
 
 <p>
-Each table row is one PDC command (one shape).
-
-<p>
 Select point with left mouse click.
 Last selected point is used as active point.
+In precise paths points with sub pixel position are indicated by red border.
 
 <h3>Shortcuts</h3>
 <p>
@@ -154,12 +153,7 @@ var COLOR_GRID		= 'black'
 var COLOR_SELECTED	= 'lightgreen'
 var COLOR_ACTIVE	= 'gold'
 var COLOR_OPACITY	= '66'
-
-var commandTypeToNameMap = {
-	[COMMAND_PATH]:		'Path',
-	[COMMAND_CIRCLE]:	'Circle',
-	[COMMAND_PRECISE]:	'Precise',
-}
+var COLOR_PRECISE	= 'red'
 
 var colors = [	// AARRGGBB, values, css and names are from Pebble SDK
 	{ value: 0b00000000, css: '#000000', name: 'None' },
@@ -567,7 +561,7 @@ function createColorPickerSelect()
 
 function createTableCommandRow()
 {
-	var tr, td, input
+	var tr, td, input, option
 
 	tr = document.createElement('tr')
 
@@ -579,6 +573,40 @@ function createTableCommandRow()
 	// type
 	td = document.createElement('td')
 	tr.appendChild(td)
+	input = document.createElement('select')
+	input.addEventListener('change', function (event) {
+		var i, index, command, point, value
+
+		index = getTableRowIndex(event.target)
+		command = pdc.commands[index]
+		command.type = Number(event.target.value)
+		value = command.type === COMMAND_PRECISE ? 0 : undefined
+
+		for (i = 0; i < command.points.length; i++) {
+			point = command.points[i]
+			point.xDecimal = value
+			point.yDecimal = value
+		}
+
+		pdcOnChange()
+	})
+	td.appendChild(input)
+
+	option = document.createElement('option')
+	option.value = COMMAND_PATH
+	option.innerText = 'Path'
+	input.appendChild(option)
+
+	option = document.createElement('option')
+	option.value = COMMAND_CIRCLE
+	option.innerText = 'Circle'
+	option.disabled = true
+	input.appendChild(option)
+
+	option = document.createElement('option')
+	option.value = COMMAND_PRECISE
+	option.innerText = 'Precise'
+	input.appendChild(option)
 
 	// is hidden
 	td = document.createElement('td')
@@ -586,7 +614,7 @@ function createTableCommandRow()
 	input = document.createElement('input')
 	input.type = 'checkbox'
 	input.addEventListener('change', function (event) {
-		index = getTableRowIndex(event.target)
+		var index = getTableRowIndex(event.target)
 		pdc.commands[index].isHidden = event.target.checked
 		pdcOnChange()
 	})
@@ -598,7 +626,7 @@ function createTableCommandRow()
 	input = createColorPickerSelect()
 	input.title = 'Depends on stroke width'
 	input.addEventListener('change', function (event) {
-		index = getTableRowIndex(event.target)
+		var index = getTableRowIndex(event.target)
 		pdc.commands[index].strokeColor = Number(event.target.value)
 		pdcOnChange()
 	})
@@ -612,7 +640,7 @@ function createTableCommandRow()
 	input.min = 0
 	input.max = 0xFF
 	input.addEventListener('change', function (event) {
-		index = getTableRowIndex(event.target)
+		var index = getTableRowIndex(event.target)
 		pdc.commands[index].strokeWidth = Number(event.target.value)
 		pdcOnChange()
 	})
@@ -623,7 +651,7 @@ function createTableCommandRow()
 	tr.appendChild(td)
 	input = createColorPickerSelect()
 	input.addEventListener('change', function (event) {
-		index = getTableRowIndex(event.target)
+		var index = getTableRowIndex(event.target)
 		pdc.commands[index].fillColor = Number(event.target.value)
 		pdcOnChange()
 	})
@@ -636,7 +664,7 @@ function createTableCommandRow()
 	input.type = 'checkbox'
 	input.title = 'Only for paths'
 	input.addEventListener('change', function (event) {
-		index = getTableRowIndex(event.target)
+		var index = getTableRowIndex(event.target)
 		pdc.commands[index].isOpen = event.target.checked
 		pdcOnChange()
 	})
@@ -651,7 +679,7 @@ function createTableCommandRow()
 	input.max = 0xFFFF
 	input.title = 'Only for circles'
 	input.addEventListener('change', function (event) {
-		index = getTableRowIndex(event.target)
+		var index = getTableRowIndex(event.target)
 		pdc.commands[index].radius = Number(event.target.value)
 		pdcOnChange()
 	})
@@ -795,6 +823,10 @@ function canvasOnChange()
 					ctx.fillRect(x - 3, y - 3, 7, 7)
 					ctx.strokeRect(x - 3 + 0.5, y - 3 + 0.5, 7, 7)
 				} else {
+					if (point.xDecimal || point.yDecimal) {
+						ctx.fillStyle = COLOR_PRECISE
+						ctx.fillRect(x - 3, y - 3, 7, 7)
+					}
 					ctx.fillStyle = COLOR_FOREGROUND
 					ctx.fillRect(x - 1, y - 1, 3, 3)
 				}
@@ -1063,7 +1095,8 @@ function pdcOnChange(skipHistoryUpdate)
 		row.classList.toggle('active', i === pdc.active.commandIndex)
 
 		row.children[0].innerText = i
-		row.children[1].innerText = commandTypeToNameMap[command.type]
+		row.children[1].children[0].value = command.type
+		row.children[1].children[0].disabled = command.type === COMMAND_CIRCLE
 		row.children[2].children[0].checked = command.isHidden
 		row.children[3].children[0].value = command.strokeColor
 		row.children[3].children[0].disabled = command.strokeWidth === 0
@@ -1095,9 +1128,14 @@ function pdcOnChange(skipHistoryUpdate)
 
 		if (command.type === COMMAND_PRECISE) {
 			activeXDecimalInput.value = point.xDecimal || 0
-			activeYDecimalInput.value = point.xDecimal || 0
+			activeYDecimalInput.value = point.yDecimal || 0
 			activeXDecimalInput.disabled = false
 			activeYDecimalInput.disabled = false
+		} else {
+			activeXDecimalInput.value = ''
+			activeYDecimalInput.value = ''
+			activeXDecimalInput.disabled = true
+			activeYDecimalInput.disabled = true
 		}
 	} else {
 		activeSpan.classList.remove('active')
@@ -1127,7 +1165,7 @@ function pdcOnChange(skipHistoryUpdate)
 	})
 
 	base64 = binary.toBase64()
-	previewLink.href = 'https://pdc-tool.heikobehrens.com/render?data=' + base64 + '&filename=' + pdc.name
+	previewLink.href = 'https://pdc-tool.heikobehrens.com/render?data=' + encodeURIComponent(base64) + '&filename=' + encodeURIComponent(pdc.name)
 	pdcBase64.innerText = base64
 
 	blob = new Blob([binary], { type: 'application/octet-stream' })

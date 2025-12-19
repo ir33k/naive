@@ -4,8 +4,8 @@
 #define MARGIN	3
 #define SPACING	2
 #define FONT0H	7
-#define FONT1H	55
-#define FONT2H	85
+#define FONT1H	56
+#define FONT2H	84
 #define FONT12W	60
 #define SHADOWW	14
 #define BLOBN	20

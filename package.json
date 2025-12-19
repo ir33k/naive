@@ -59,12 +59,12 @@
         {
           "type": "raw",
           "name": "FONT1",
-          "file": "font1.pdc"
+          "file": "font1b.pdc"
         },
         {
           "type": "raw",
           "name": "FONT2",
-          "file": "font2.pdc"
+          "file": "font2b.pdc"
         }
       ]
     }
