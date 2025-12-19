@@ -75,6 +75,8 @@ static char*	formatstr	(char*);
 static GRect	glyphrect	(char);
 static void	drawpixel	(GBitmapDataRowInfo, i16, GColor);
 static void	dither		(Layer*, GContext*, u8);
+static void	findglyphs	(GDrawCommandImage*, u8 glyphs[10]);
+static void	drawdigit	(GContext*, GDrawCommandImage*, u8 i);
 static void	onload		(Window*);
 static void	onunload	(Window*);
 static void	ontick		(struct tm*, TimeUnits);
@@ -132,7 +134,7 @@ static HealthValue	steps;
 static bool		connected;
 static u8		blobi;
 
-static struct { u16 x,w; } glyphs[128] = {
+static struct { u16 x,w; } f0glyphs[128] = {
 	/* 0 Index is never used as 0 is a null terminator in strings */
 	[0] = {0,0},
 	/* Use first whitespace ACSII characters for icons */
@@ -195,6 +197,9 @@ static struct { u16 x,w; } glyphs[128] = {
 	/* Special */
 	[ICON_FLIPX]={0,0}
 };
+
+static u8 font1glyphs[10];
+static u8 font2glyphs[10];
 
 void
 configure()
@@ -326,9 +331,9 @@ glyphrect(char c)
 {
 	GRect rect;
 
-	rect.origin.x = glyphs[(int)c].x;
+	rect.origin.x = f0glyphs[(int)c].x;
 	rect.origin.y = 0;
-	rect.size.w = glyphs[(int)c].w;
+	rect.size.w = f0glyphs[(int)c].w;
 	rect.size.h = rect.size.w ? FONT0H : 0;
 
 	return rect;
@@ -380,6 +385,50 @@ dither(Layer *layer, GContext *ctx, u8 amount)
 		for (x = rect.origin.x; x < maxx; x++)
 			if (amount > map[y%8][x%8])
 				drawpixel(info, x, conf.bg);
+	}
+}
+
+void
+findglyphs(GDrawCommandImage *img, u8 glyphs[10])
+{
+	u32 i, j, n;
+	GDrawCommandList *cmds;
+	GDrawCommand *cmd;
+
+	cmds = gdraw_command_image_get_command_list(img);
+	n = gdraw_command_list_get_num_commands(cmds);
+
+	for (i=0, j=0; i<10 && j<n; j++) {
+		cmd = gdraw_command_list_get_command(cmds, j);
+
+		if (gdraw_command_get_type(cmd) == GDrawCommandTypePath)
+			glyphs[i++] = j;
+	}
+}
+
+void
+drawdigit(GContext *ctx, GDrawCommandImage *img, u8 i)
+{
+	u32 n;
+	GDrawCommandList *cmds;
+	GDrawCommand *cmd;
+
+	cmds = gdraw_command_image_get_command_list(img);
+	n = gdraw_command_list_get_num_commands(cmds);
+	for (; i < n; i++) {
+		cmd = gdraw_command_list_get_command(cmds, i);
+		gdraw_command_set_hidden(cmd, false);
+		gdraw_command_set_stroke_color(cmd, conf.fg);
+		gdraw_command_set_fill_color(cmd, conf.fg);
+		gdraw_command_draw(ctx, cmd);
+
+		if ((u32)i+1 >= n)
+			break;
+
+		cmd = gdraw_command_list_get_command(cmds, i+1);
+
+		if (gdraw_command_get_type(cmd) == GDrawCommandTypePath)
+			break;
 	}
 }
 
@@ -768,21 +817,12 @@ onhour0(Layer *layer, GContext *ctx)
 	Tm *tm;
 	char buf[4];
 	u8 i;
-	GDrawCommandList *cmds;
-	GDrawCommand *cmd;
 
 	tm = now();
 	strftime(buf, sizeof buf, clock_is_24h_style() ? "%H" : "%I", tm);
 	i = buf[0] - '0';
 
-	cmds = gdraw_command_image_get_command_list(font1);
-	cmd = gdraw_command_list_get_command(cmds, i);
-
-	gdraw_command_set_hidden(cmd, false);
-	gdraw_command_set_stroke_color(cmd, conf.fg);
-	gdraw_command_set_fill_color(cmd, conf.fg);
-	gdraw_command_draw(ctx, cmd);
-
+	drawdigit(ctx, font1, font1glyphs[i]);
 	dither(layer, ctx, 128);
 }
 
@@ -792,20 +832,12 @@ onhour1(Layer *layer, GContext *ctx)
 	Tm *tm;
 	char buf[4];
 	u8 i;
-	GDrawCommandList *cmds;
-	GDrawCommand *cmd;
 
 	tm = now();
 	strftime(buf, sizeof buf, clock_is_24h_style() ? "%H" : "%I", tm);
 	i = buf[0] - '0';
 
-	cmds = gdraw_command_image_get_command_list(font1);
-	cmd = gdraw_command_list_get_command(cmds, i);
-
-	gdraw_command_set_hidden(cmd, false);
-	gdraw_command_set_stroke_color(cmd, conf.fg);
-	gdraw_command_set_fill_color(cmd, conf.fg);
-	gdraw_command_draw(ctx, cmd);
+	drawdigit(ctx, font1, font1glyphs[i]);
 }
 
 void
@@ -814,20 +846,12 @@ onhour2(Layer *layer, GContext *ctx)
 	Tm *tm;
 	char buf[4];
 	u8 i;
-	GDrawCommandList *cmds;
-	GDrawCommand *cmd;
 
 	tm = now();
 	strftime(buf, sizeof buf, clock_is_24h_style() ? "%H" : "%I", tm);
 	i = buf[1] - '0';
 
-	cmds = gdraw_command_image_get_command_list(font1);
-	cmd = gdraw_command_list_get_command(cmds, i);
-
-	gdraw_command_set_hidden(cmd, false);
-	gdraw_command_set_stroke_color(cmd, conf.fg);
-	gdraw_command_set_fill_color(cmd, conf.fg);
-	gdraw_command_draw(ctx, cmd);
+	drawdigit(ctx, font1, font1glyphs[i]);
 }
 
 void
@@ -836,21 +860,12 @@ onminute0(Layer *layer, GContext *ctx)
 	Tm *tm;
 	char buf[4];
 	u8 i;
-	GDrawCommandList *cmds;
-	GDrawCommand *cmd;
 
 	tm = now();
 	strftime(buf, sizeof buf, "%M", tm);
 	i = buf[0] - '0';
 
-	cmds = gdraw_command_image_get_command_list(font2);
-	cmd = gdraw_command_list_get_command(cmds, i);
-
-	gdraw_command_set_hidden(cmd, false);
-	gdraw_command_set_stroke_color(cmd, conf.fg);
-	gdraw_command_set_fill_color(cmd, conf.fg);
-	gdraw_command_draw(ctx, cmd);
-
+	drawdigit(ctx, font2, font2glyphs[i]);
 	dither(layer, ctx, 128);
 }
 
@@ -860,20 +875,12 @@ onminute1(Layer *layer, GContext *ctx)
 	Tm *tm;
 	char buf[4];
 	u8 i;
-	GDrawCommandList *cmds;
-	GDrawCommand *cmd;
 
 	tm = now();
 	strftime(buf, sizeof buf, "%M", tm);
 	i = buf[0] - '0';
 
-	cmds = gdraw_command_image_get_command_list(font2);
-	cmd = gdraw_command_list_get_command(cmds, i);
-
-	gdraw_command_set_hidden(cmd, false);
-	gdraw_command_set_stroke_color(cmd, conf.fg);
-	gdraw_command_set_fill_color(cmd, conf.fg);
-	gdraw_command_draw(ctx, cmd);
+	drawdigit(ctx, font2, font2glyphs[i]);
 }
 
 void
@@ -882,20 +889,12 @@ onminute2(Layer *layer, GContext *ctx)
 	Tm *tm;
 	char buf[4];
 	u8 i;
-	GDrawCommandList *cmds;
-	GDrawCommand *cmd;
 
 	tm = now();
 	strftime(buf, sizeof buf, "%M", tm);
 	i = buf[1] - '0';
 
-	cmds = gdraw_command_image_get_command_list(font2);
-	cmd = gdraw_command_list_get_command(cmds, i);
-
-	gdraw_command_set_hidden(cmd, false);
-	gdraw_command_set_stroke_color(cmd, conf.fg);
-	gdraw_command_set_fill_color(cmd, conf.fg);
-	gdraw_command_draw(ctx, cmd);
+	drawdigit(ctx, font2, font2glyphs[i]);
 }
 
 int
@@ -950,7 +949,9 @@ main(void)
 	font1 = gdraw_command_image_create_with_resource(RESOURCE_ID_FONT1);
 	font2 = gdraw_command_image_create_with_resource(RESOURCE_ID_FONT2);
 	blobi = 0;
-
+	findglyphs(font1, font1glyphs);
+	findglyphs(font2, font2glyphs);
+	
 	/* Services */
 	accel_tap_service_subscribe(ontap);
 	connected = connection_service_peek_pebble_app_connection();
@@ -965,6 +966,7 @@ main(void)
 	window_destroy(win);
 	gbitmap_destroy(font0);
 	gdraw_command_image_destroy(font1);
+	gdraw_command_image_destroy(font2);
 
 	return 0;
 }
