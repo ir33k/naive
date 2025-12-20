@@ -114,6 +114,7 @@ static struct {
 	Vibe	bton;
 	Vibe	btoff;
 	Vibe	hour;
+	u8	shadow;
 	i8	seconds;
 } conf;
 
@@ -136,6 +137,7 @@ static bool		charging;
 static HealthValue	steps;
 static bool		connected;
 static bool		quickview;
+static time_t		chronograph;
 
 static struct { u16 x,w; } font0glyphs[128] = {
 	/* 0 Index is never used as 0 is a null terminator in strings */
@@ -204,6 +206,8 @@ static struct { u16 x,w; } font0glyphs[128] = {
 static u8 font1glyphs[10];
 static u8 font2glyphs[10];
 
+static u8 shadowmap[7] = { 254, 252, 248, 240, 224, 192, 128 };
+
 void
 configure()
 {
@@ -249,9 +253,11 @@ formatstr(char *fmt)
 {
 	static char buf[32];
 	u32 i, blob;
+	time_t timestamp, diff;
 	Tm *tm;
 
-	tm = now();
+	timestamp = time(0);
+	tm = localtime(&timestamp);
 
 	/**/ if (charging) blob = ICON_BLOB_CHARGING;
 	else if (battery < 15) blob = ICON_BLOB_DEAD;
@@ -282,6 +288,11 @@ formatstr(char *fmt)
 			case 's':
 			case 'S':
 				i += snprintf(buf+i, sizeof buf - i, "%ld", steps);
+				break;
+			case 'c':
+			case 'C':
+				diff = timestamp - chronograph;
+				i += snprintf(buf+i, sizeof buf - i, "%ldm", diff / 60);
 				break;
 			}
 			break;
@@ -610,6 +621,9 @@ onconf(DictionaryIterator *di, void *_ctx)
 	if ((tuple = dict_find(di, MESSAGE_KEY_HOUR)))
 		conf.hour = atoi(tuple->value->cstring);
 
+	if ((tuple = dict_find(di, MESSAGE_KEY_SHADOW)))
+		conf.shadow = tuple->value->uint8;
+
 	if ((tuple = dict_find(di, MESSAGE_KEY_SECONDS)))
 		conf.seconds = atoi(tuple->value->cstring);
 
@@ -715,6 +729,7 @@ ontap(AccelAxisType _axis, i32 _direction)
 	static u8 count;
 
 	count = 0;
+	chronograph = time(0);
 
 	layer_mark_dirty(text0);
 	layer_mark_dirty(text1);
@@ -889,7 +904,7 @@ onhour0(Layer *layer, GContext *ctx)
 	i = buf[0] - '0';
 
 	drawdigit(ctx, font1, font1glyphs[i]);
-	dither(layer, ctx, 128);
+	dither(layer, ctx, shadowmap[conf.shadow]);
 }
 
 void
@@ -936,7 +951,7 @@ onminute0(Layer *layer, GContext *ctx)
 	else
 		drawdigit(ctx, font2, font2glyphs[i]);
 
-	dither(layer, ctx, 128);
+	dither(layer, ctx, shadowmap[conf.shadow]);
 }
 
 void
@@ -1010,6 +1025,7 @@ main(void)
 	conf.bton = VIBE_SILENT;
 	conf.btoff = VIBE_SILENT;
 	conf.hour = VIBE_SILENT;
+	conf.shadow = 0;
 	conf.seconds = 0;
 	/* TODO(irek): Add some padding in case configuration change
 	 * in future version. */
@@ -1045,6 +1061,7 @@ main(void)
 	connection_service_subscribe((ConnectionHandlers){ onconnection, 0 });
 	battery_state_service_subscribe(onbattery);
 	onbattery(battery_state_service_peek());
+	chronograph = time(0);
 
 	/* Main */
 	app_event_loop();

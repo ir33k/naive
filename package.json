@@ -1,7 +1,7 @@
 {
   "name": "naive",
   "author": "irek",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "keywords": [
     "pebble-watchface",
     "naive",
@@ -41,6 +41,7 @@
       "BTON",
       "BTOFF",
       "HOUR",
+      "SHADOW",
       "SECONDS"
     ],
     "resources": {

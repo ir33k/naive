@@ -52,7 +52,7 @@ new Clay([
       },
       {
         "type": "text",
-        "defaultValue": "Placeholders for Pebble values start with #. #b is battery percent, #s steps counter. To insert regular # use ##."
+          "defaultValue": "Placeholders for Pebble values start with #. #b is battery percent, #s steps counter, #c is chronograph which value resets on Tap (shake). To insert regular # use ##."
       },
       {
         "type": "text",
@@ -180,6 +180,16 @@ new Clay([
       {
         "type": "heading",
         "defaultValue": "Other"
+      },
+      {
+        "messageKey": "SHADOW",
+        "type": "slider",
+        "defaultValue": 6,
+        "label": "Shadow strength",
+        "description": "The decoration on the left edge",
+        "min": 0,
+        "max": 6,
+        "step": 1
       },
       {
         "messageKey": "SECONDS",
