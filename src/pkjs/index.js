@@ -62,11 +62,11 @@ new Clay([
         "id": "text0-select",
         "type": "select",
         "label": "Presets",
-        "defaultValue": "#b%%*b*c",
+        "defaultValue": "#s*s",
         "options": [
           { "value": "",            "label": "NOTHING" },
-          { "value": "#b%%*b*c",    "label": "85%🔋⚡️" },
-          { "value": "#b%%*c",      "label": "85%⚡️" }
+          { "value": "#s*s", "label": "500👟" },
+          { "value": "Steps #s*h",        "label": "Steps 500♥️" }
         ]
       },
       {
@@ -101,11 +101,11 @@ new Clay([
         "id": "text2-select",
         "type": "select",
         "label": "Presets",
-        "defaultValue": "#s*s",
+        "defaultValue": "#b%%*b*c",
         "options": [
           { "value": "",            "label": "NOTHING" },
-          { "value": "#s*s", "label": "500👟" },
-          { "value": "Steps #s*h",        "label": "Steps 500♥️" }
+          { "value": "#b%%*b*c",    "label": "85%🔋⚡️" },
+          { "value": "#b%%*c",      "label": "85%⚡️" }
         ]
       },
       {

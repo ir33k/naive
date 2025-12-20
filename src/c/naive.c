@@ -1018,9 +1018,9 @@ main(void)
 	/* Config */
 	conf.bg = GColorBlack;
 	conf.fg = GColorWhite;
-	strncpy(conf.text0, "#b%%",  sizeof conf.text0);	/* Battery */
+	strncpy(conf.text0, "#s*h",  sizeof conf.text2);	/* health */
 	strncpy(conf.text1, "*c*s",  sizeof conf.text1);	/* Icons */
-	strncpy(conf.text2, "#s*h",  sizeof conf.text2);	/* health */
+	strncpy(conf.text2, "#b%%",  sizeof conf.text0);	/* Battery */
 	strncpy(conf.text3, "%A %d", sizeof conf.text3);	/* Date */
 	conf.bton = VIBE_SILENT;
 	conf.btoff = VIBE_SILENT;
