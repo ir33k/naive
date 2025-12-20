@@ -1,6 +1,7 @@
 #include <pebble.h>
 
 #define CONFKEY	1
+#define CHRONOGRAPHKEY	2
 #define MARGIN	3
 #define SPACING	2
 #define FONT0H	7
@@ -545,6 +546,8 @@ onload(Window *win)
 	minute2 = layer_create(rect);
 	layer_set_update_proc(minute2, onminute2);
 	layer_add_child(body, minute2);
+
+	persist_read_data(CHRONOGRAPHKEY, &chronograph, sizeof chronograph);
 }
 
 void
@@ -729,7 +732,9 @@ ontap(AccelAxisType _axis, i32 _direction)
 	static u8 count;
 
 	count = 0;
+
 	chronograph = time(0);
+	persist_write_data(CHRONOGRAPHKEY, &chronograph, sizeof chronograph);
 
 	layer_mark_dirty(text0);
 	layer_mark_dirty(text1);
