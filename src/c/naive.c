@@ -1018,14 +1018,14 @@ main(void)
 	/* Config */
 	conf.bg = GColorBlack;
 	conf.fg = GColorWhite;
-	strncpy(conf.text0, "#s*h",  sizeof conf.text2);	/* health */
-	strncpy(conf.text1, "*c*s",  sizeof conf.text1);	/* Icons */
-	strncpy(conf.text2, "#b%%",  sizeof conf.text0);	/* Battery */
-	strncpy(conf.text3, "%A %d", sizeof conf.text3);	/* Date */
+	strncpy(conf.text0, "#s*s", sizeof conf.text2);
+	strncpy(conf.text1, "*l*w*q", sizeof conf.text1);
+	strncpy(conf.text2, "#b%%*b*c", sizeof conf.text0);
+	strncpy(conf.text3, "%A %d", sizeof conf.text3);
 	conf.bton = VIBE_SILENT;
 	conf.btoff = VIBE_SILENT;
 	conf.hour = VIBE_SILENT;
-	conf.shadow = 0;
+	conf.shadow = 6;
 	conf.seconds = 0;
 	/* TODO(irek): Add some padding in case configuration change
 	 * in future version. */

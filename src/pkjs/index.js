@@ -65,8 +65,8 @@ new Clay([
         "defaultValue": "#s*s",
         "options": [
           { "value": "",            "label": "NOTHING" },
-          { "value": "#s*s", "label": "500👟" },
-          { "value": "Steps #s*h",        "label": "Steps 500♥️" }
+          { "value": "#s*s",        "label": "500👟" },
+          { "value": "Steps #s*h",  "label": "Steps 500♥️" }
         ]
       },
       {
@@ -74,18 +74,18 @@ new Clay([
         "type": "input",
         "messageKey": "TEXT0",
         "label": "Format",
-        "defaultValue": "#b%%",
+        "defaultValue": "#s*s",
         "description": "Top left text"
       },
       {
         "id": "text1-select",
         "type": "select",
         "label": "Presets",
-        "defaultValue": "*l#i*w*q",
+        "defaultValue": "*l*w*q",
         "options": [
           { "value": "",            "label": "NOTHING" },
-          { "value": "*l#i*w*q",    "label": "Blob ⚠️🔕" },
-          { "value": "*l#i",        "label": "Blob" },
+          { "value": "*l*w*q",      "label": "Blob ⚠️🔕" },
+          { "value": "*l",          "label": "Blob" },
           { "value": "*c*w*q",      "label": "🗲⚠️🔕" }
         ]
       },
@@ -94,7 +94,7 @@ new Clay([
         "type": "input",
         "messageKey": "TEXT1",
         "label": "Format",
-        "defaultValue": "*c*s",
+        "defaultValue": "*l*w*q",
         "description": "Top right text"
       },
       {
@@ -113,7 +113,7 @@ new Clay([
         "type": "input",
         "messageKey": "TEXT2",
         "label": "Format",
-        "defaultValue": "#s*h",
+        "defaultValue": "#b%%*b*c",
         "description": "Bottom left text"
       },
       {
