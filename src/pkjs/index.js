@@ -56,7 +56,7 @@ new Clay([
       },
       {
         "type": "text",
-        "defaultValue": "Placeholders for icons start with *. *h is heart, *q is quiet time visible when active, *c is battery charging indicator visible during charging, *b shows battery icon, *w is a warning icon that appears when Bluetooth connection is lost, *s is icon for steps, *l shows Bloob looking to the left and *r is Bloob looking to the right. To insert regular * use **."
+        "defaultValue": "Placeholders for icons start with *. *h is heart, *q is quiet time visible when active, *c is battery charging indicator visible during charging, *b shows battery icon, *w is a warning icon that appears when Bluetooth connection is lost, *s is icon for steps, *l shows Blob looking to the left and *r is Blob looking to the right. To insert regular * use **."
       },
       {
         "id": "text0-select",
@@ -209,6 +209,23 @@ new Clay([
           { "value": "60", "label": "1 min" },
           { "value": "300", "label": "5 min" }
         ]
+      },
+    ]
+  },
+  {
+    "type": "section",
+    "items": [
+      {
+        "type": "heading",
+        "defaultValue": "Blob"
+      },
+      {
+        "type": "text",
+          "defaultValue": "Also known as Blobby is a little naive creature that lives inside your watchface. To show it use '*l' or '*r' in one of text lines."
+      },
+      {
+        "type": "text",
+          "defaultValue": "He is emotionally unstable and will usually change his mood each minute getting randomly happy, excited or angry. Sometimes it will react to Pebble state like Bluetooth connection status or battery level."
       },
     ]
   },
