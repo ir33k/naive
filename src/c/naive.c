@@ -88,6 +88,7 @@ static void	onbattery	(BatteryChargeState);
 #ifdef PBL_HEALTH
 static void	onhealth	(HealthEventType, void*);
 #endif
+static void	onarea		(void*);
 static void	ontap		(AccelAxisType, i32);
 static void	ontimer		(void*);
 static void	onbody		(Layer*, GContext*);
@@ -134,6 +135,7 @@ static u8		battery;
 static bool		charging;
 static HealthValue	steps;
 static bool		connected;
+static bool		quickview;
 
 static struct { u16 x,w; } font0glyphs[128] = {
 	/* 0 Index is never used as 0 is a null terminator in strings */
@@ -400,6 +402,8 @@ dither(Layer *layer, GContext *ctx, u8 amount)
 			if (amount > map[y%8][x%8])
 				drawpixel(&info, x, conf.bg);
 	}
+
+	graphics_release_frame_buffer(ctx, fb);
 }
 
 void
@@ -654,6 +658,58 @@ onhealth(HealthEventType event, void *_ctx)
 #endif
 
 void
+onarea(void *ctx)
+{
+	Window *win;
+	Layer *layer;
+	GRect rect, rect1;
+	GRect recth0, recth1, recth2, rectm0, rectm1, rectm2;
+
+	win = ctx;
+
+	layer = window_get_root_layer(win);
+	rect = layer_get_bounds(layer);
+	rect1 = layer_get_unobstructed_bounds(layer);
+
+	quickview = rect.size.h != rect1.size.h;
+
+	layer_set_hidden(text0, quickview);
+	layer_set_hidden(text1, quickview);
+	layer_set_hidden(text2, quickview);
+	layer_set_hidden(text3, quickview);
+
+	recth0 = layer_get_frame(hour0);
+	recth1 = layer_get_frame(hour1);
+	recth2 = layer_get_frame(hour2);
+	rectm0 = layer_get_frame(minute0);
+	rectm1 = layer_get_frame(minute1);
+	rectm2 = layer_get_frame(minute2);
+
+	if (quickview) {
+		recth0.origin.y = SPACING;
+		recth1.origin.y = SPACING;
+		recth2.origin.y = SPACING;
+		rectm0.origin.y = SPACING*2 + FONT1H;
+		rectm1.origin.y = SPACING*2 + FONT1H;
+		rectm2.origin.y = SPACING*2 + FONT1H;
+	} else {
+		recth0.origin.y = MARGIN*2 + FONT0H;
+		recth1.origin.y = MARGIN*2 + FONT0H;
+		recth2.origin.y = MARGIN*2 + FONT0H;
+		rectm0.origin.y = MARGIN*2 + FONT0H + FONT1H + SPACING;
+		rectm1.origin.y = MARGIN*2 + FONT0H + FONT1H + SPACING;
+		rectm2.origin.y = MARGIN*2 + FONT0H + FONT1H + SPACING;
+	}
+
+	layer_set_frame(hour0, recth0);
+	layer_set_frame(hour1, recth1);
+	layer_set_frame(hour2, recth2);
+	layer_set_frame(minute0, rectm0);
+	layer_set_frame(minute1, rectm1);
+	layer_set_frame(minute2, rectm2);
+}
+
+void
 ontap(AccelAxisType _axis, i32 _direction)
 {
 	static u8 count;
@@ -875,7 +931,11 @@ onminute0(Layer *layer, GContext *ctx)
 	strftime(buf, sizeof buf, "%M", tm);
 	i = buf[0] - '0';
 
-	drawdigit(ctx, font2, font2glyphs[i]);
+	if (quickview)
+		drawdigit(ctx, font1, font1glyphs[i]);
+	else
+		drawdigit(ctx, font2, font2glyphs[i]);
+
 	dither(layer, ctx, 128);
 }
 
@@ -890,7 +950,10 @@ onminute1(Layer *layer, GContext *ctx)
 	strftime(buf, sizeof buf, "%M", tm);
 	i = buf[0] - '0';
 
-	drawdigit(ctx, font2, font2glyphs[i]);
+	if (quickview)
+		drawdigit(ctx, font1, font1glyphs[i]);
+	else
+		drawdigit(ctx, font2, font2glyphs[i]);
 }
 
 void
@@ -904,7 +967,10 @@ onminute2(Layer *layer, GContext *ctx)
 	strftime(buf, sizeof buf, "%M", tm);
 	i = buf[1] - '0';
 
-	drawdigit(ctx, font2, font2glyphs[i]);
+	if (quickview)
+		drawdigit(ctx, font1, font1glyphs[i]);
+	else
+		drawdigit(ctx, font2, font2glyphs[i]);
 }
 
 int
@@ -913,6 +979,7 @@ main(void)
 	Window *win;
 	WindowHandlers wh;
 	time_t now;
+	UnobstructedAreaHandlers area;
 
 	/* Window */
 	win = window_create();
@@ -960,6 +1027,17 @@ main(void)
 	font2 = gdraw_command_image_create_with_resource(RESOURCE_ID_FONT2);
 	findglyphs(font1, font1glyphs);
 	findglyphs(font2, font2glyphs);
+
+	/* Unobstructed area (quick view) */
+	area.will_change = 0;
+	area.change = 0;
+	area.did_change = onarea;
+	unobstructed_area_service_subscribe(area, win);
+	onarea(win);
+	// NOTE(irek): Aplite has unobstructed_area_service_subscribe
+	// macro doing nothing.  In result the variable "area" is
+	// never used and compailer complains.
+	(void)area;
 	
 	/* Services */
 	accel_tap_service_subscribe(ontap);
