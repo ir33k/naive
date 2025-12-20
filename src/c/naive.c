@@ -9,6 +9,8 @@
 #define FONT12W	60
 #define SHADOWW	14
 #define BLOBN	20
+#define BLOBMIN	ICON_BLOB_SMILE
+#define BLOBMAX	ICON_BLOB_DEAD
 
 enum icon {
 	ICON_HEART = 1,		/* Skip 0, it's used as null terminator */
@@ -22,26 +24,26 @@ enum icon {
 	ICON_BATTERY_100,
 	ICON_WARNING,
 	ICON_STEP,
-	ICON_BLOB_0,
-	ICON_BLOB_1,
-	ICON_BLOB_2,
-	ICON_BLOB_3,
-	ICON_BLOB_4,
-	ICON_BLOB_5,
-	ICON_BLOB_6,
-	ICON_BLOB_7,
-	ICON_BLOB_8,
-	ICON_BLOB_9,
-	ICON_BLOB_10,
-	ICON_BLOB_11,
-	ICON_BLOB_12,
-	ICON_BLOB_13,
-	ICON_BLOB_14,
-	ICON_BLOB_15,
-	ICON_BLOB_16,
-	ICON_BLOB_17,
-	ICON_BLOB_18,
-	ICON_BLOB_19,
+	ICON_BLOB_SMILE,
+	ICON_BLOB_BIGSMILE,
+	ICON_BLOB_GLAD,
+	ICON_BLOB_NATURAL,
+	ICON_BLOB_SAD,
+	ICON_BLOB_CONFUSED,
+	ICON_BLOB_OPS,
+	ICON_BLOB_CURIOUS,
+	ICON_BLOB_SCARE,
+	ICON_BLOB_SURPRISE,
+	ICON_BLOB_CRY,
+	ICON_BLOB_COOL,
+	ICON_BLOB_TONGUE,
+	ICON_BLOB_ANGRY,
+	ICON_BLOB_CHARGING,
+	ICON_BLOB_AMAZED,
+	ICON_BLOB_LOVE,
+	ICON_BLOB_KISS,
+	ICON_BLOB_SLEEP,
+	ICON_BLOB_DEAD,
 	ICON_FLIPX = 127,	/* Special icon, flip horizontally next icon */
 };
 
@@ -73,7 +75,7 @@ static Tm*	now		();
 static void	vibe		(Vibe);
 static char*	formatstr	(char*);
 static GRect	glyphrect	(char);
-static void	drawpixel	(GBitmapDataRowInfo, i16, GColor);
+static void	drawpixel	(GBitmapDataRowInfo*, i16, GColor);
 static void	dither		(Layer*, GContext*, u8);
 static void	findglyphs	(GDrawCommandImage*, u8 glyphs[10]);
 static void	drawdigit	(GContext*, GDrawCommandImage*, u8 i);
@@ -132,9 +134,8 @@ static u8		battery;
 static bool		charging;
 static HealthValue	steps;
 static bool		connected;
-static u8		blobi;
 
-static struct { u16 x,w; } f0glyphs[128] = {
+static struct { u16 x,w; } font0glyphs[128] = {
 	/* 0 Index is never used as 0 is a null terminator in strings */
 	[0] = {0,0},
 	/* Use first whitespace ACSII characters for icons */
@@ -149,26 +150,26 @@ static struct { u16 x,w; } f0glyphs[128] = {
 	[ICON_BATTERY_100]	= {468,5},
 	[ICON_WARNING]		= {473,7},
 	[ICON_STEP]		= {481,13},
-	[ICON_BLOB_0]		= {548,9},
-	[ICON_BLOB_1]		= {557,9},
-	[ICON_BLOB_2]		= {566,9},
-	[ICON_BLOB_3]		= {575,9},
-	[ICON_BLOB_4]		= {584,9},
-	[ICON_BLOB_5]		= {593,9},
-	[ICON_BLOB_6]		= {602,9},
-	[ICON_BLOB_7]		= {611,9},
-	[ICON_BLOB_8]		= {620,9},
-	[ICON_BLOB_9]		= {629,9},
-	[ICON_BLOB_10]		= {638,9},
-	[ICON_BLOB_11]		= {647,9},
-	[ICON_BLOB_12]		= {656,9},
-	[ICON_BLOB_13]		= {665,11},
-	[ICON_BLOB_14]		= {676,14},
-	[ICON_BLOB_15]		= {690,15},
-	[ICON_BLOB_16]		= {705,15},
-	[ICON_BLOB_17]		= {720,17},
-	[ICON_BLOB_18]		= {737,18},
-	[ICON_BLOB_19]		= {755,13},
+	[ICON_BLOB_SMILE]	= {548,9},
+	[ICON_BLOB_BIGSMILE]	= {557,9},
+	[ICON_BLOB_GLAD]	= {566,9},
+	[ICON_BLOB_NATURAL]	= {575,9},
+	[ICON_BLOB_SAD]		= {584,9},
+	[ICON_BLOB_CONFUSED]	= {593,9},
+	[ICON_BLOB_OPS]		= {602,9},
+	[ICON_BLOB_CURIOUS]	= {611,9},
+	[ICON_BLOB_SCARE]	= {620,9},
+	[ICON_BLOB_SURPRISE]	= {629,9},
+	[ICON_BLOB_CRY]		= {638,9},
+	[ICON_BLOB_COOL]	= {647,9},
+	[ICON_BLOB_TONGUE]	= {656,9},
+	[ICON_BLOB_ANGRY]	= {665,11},
+	[ICON_BLOB_CHARGING]	= {676,14},
+	[ICON_BLOB_AMAZED]	= {690,15},
+	[ICON_BLOB_LOVE]	= {705,15},
+	[ICON_BLOB_KISS]	= {720,17},
+	[ICON_BLOB_SLEEP]	= {737,18},
+	[ICON_BLOB_DEAD]	= {755,13},
 	/* Regular characters */
 	[' ']={  0,6}, ['!']={  6,3}, ['"']={  9,4}, ['#']={ 13,6},
 	['$']={ 19,6}, ['%']={ 25,7}, ['&']={ 32,7}, ['\'']={39,2},
@@ -245,7 +246,24 @@ char*
 formatstr(char *fmt)
 {
 	static char buf[32];
-	u32 i;
+	u32 i, blob;
+	Tm *tm;
+
+	tm = now();
+
+	/**/ if (charging) blob = ICON_BLOB_CHARGING;
+	else if (battery < 15) blob = ICON_BLOB_DEAD;
+	else if (!connected) blob = ICON_BLOB_CRY;
+	else if (tm->tm_hour < 6 || tm->tm_hour > 22) blob = ICON_BLOB_SLEEP;
+	else {
+		srand(time(0));
+		do {
+			blob = rand() % (BLOBMIN - BLOBMAX + 1) + BLOBMIN;
+		} while (blob == ICON_BLOB_CHARGING ||
+			 blob == ICON_BLOB_DEAD ||
+			 blob == ICON_BLOB_CRY ||
+			 blob == ICON_BLOB_SLEEP);
+	}
 
 	for (i=0; *fmt && i < sizeof buf - 1; fmt++) {
 		switch (*fmt) {
@@ -262,10 +280,6 @@ formatstr(char *fmt)
 			case 's':
 			case 'S':
 				i += snprintf(buf+i, sizeof buf - i, "%ld", steps);
-				break;
-			case 'i':
-			case 'I':
-				i += snprintf(buf+i, sizeof buf - i, "%u", blobi);
 				break;
 			}
 			break;
@@ -309,12 +323,12 @@ formatstr(char *fmt)
 				break;
 			case 'l':
 			case 'L':
-				buf[i++] = ICON_BLOB_0 + blobi;
+				buf[i++] = blob;
 				break;
 			case 'r':
 			case 'R':
 				buf[i++] = ICON_FLIPX;
-				buf[i++] = ICON_BLOB_0 + blobi;
+				buf[i++] = blob;
 				break;
 			}
 			break;
@@ -331,24 +345,24 @@ glyphrect(char c)
 {
 	GRect rect;
 
-	rect.origin.x = f0glyphs[(int)c].x;
+	rect.origin.x = font0glyphs[(int)c].x;
 	rect.origin.y = 0;
-	rect.size.w = f0glyphs[(int)c].w;
+	rect.size.w = font0glyphs[(int)c].w;
 	rect.size.h = rect.size.w ? FONT0H : 0;
 
 	return rect;
 }
 
 void
-drawpixel(GBitmapDataRowInfo info, i16 x, GColor color)
+drawpixel(GBitmapDataRowInfo *info, i16 x, GColor color)
 {
 #if defined(PBL_COLOR)
-	memset(info.data + x, color.argb, 1);
+	memset(info->data + x, color.argb, 1);
 #elif defined(PBL_BW)
 	u8 byte  = x / 8;
 	u8 bit   = x % 8;
 	u8 value = gcolor_equal(color, GColorWhite) ? 1 : 0;
-	u8 *bp   = &info.data[byte];
+	u8 *bp   = info->data + byte;
 	*bp ^= (-value ^ *bp) & (1 << bit);
 #endif
 }
@@ -384,7 +398,7 @@ dither(Layer *layer, GContext *ctx, u8 amount)
 
 		for (x = rect.origin.x; x < maxx; x++)
 			if (amount > map[y%8][x%8])
-				drawpixel(info, x, conf.bg);
+				drawpixel(&info, x, conf.bg);
 	}
 }
 
@@ -644,10 +658,6 @@ ontap(AccelAxisType _axis, i32 _direction)
 {
 	static u8 count;
 
-	blobi++;
-	if (blobi == BLOBN)
-		blobi = 0;
-
 	count = 0;
 
 	layer_mark_dirty(text0);
@@ -772,7 +782,7 @@ ontext(Layer *layer, GContext *ctx, char *fmt, Align align)
 				if (pixels[(768*py+px)>>3] & (0x80>>px%8))
 					color = conf.fg;
 
-				drawpixel(info, x, color);
+				drawpixel(&info, x, color);
 
 				x += flipx ? -1 : 1;
 			}
@@ -948,7 +958,6 @@ main(void)
 	font0 = gbitmap_create_with_resource(RESOURCE_ID_FONT0);
 	font1 = gdraw_command_image_create_with_resource(RESOURCE_ID_FONT1);
 	font2 = gdraw_command_image_create_with_resource(RESOURCE_ID_FONT2);
-	blobi = 0;
 	findglyphs(font1, font1glyphs);
 	findglyphs(font2, font2glyphs);
 	
